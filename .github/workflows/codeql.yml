@@ -1,0 +1,55 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  # 定期重扫：查询库会更新，今天没报的问题下个月可能会报
+  schedule:
+    # 每周一 03:17 UTC。★错开整点★ —— 整点是 GitHub 排队高峰
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+
+    permissions:
+      security-events: write # 把扫描结果写进 Security 标签页，必需
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            # JS/TS 不需要编译就能建数据库，所以不用 build 步骤
+            build-mode: none
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # queries 不填 = 默认的 security 查询集。
+          # security-extended 能多查出一些，代价是误报变多；
+          # security-and-quality 还会带上可维护性规则，噪音很大。
+          # 等真的漏过东西再往上加，别一开始就开到最大。
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
