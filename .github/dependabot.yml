@@ -31,5 +31,13 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
+      # ★和 CodeQL 的定时扫描错开★ —— codeql.yml 是周一 03:17 UTC
       interval: weekly
-      day: monday
+      day: tuesday
+
+    # 不分组的话每个 action 一个 PR。首次配置就开了 3 个，三个都改同一个
+    # 文件，合完第一个后面两个都要 rebase —— 纯粹是自找的
+    groups:
+      github-actions:
+        patterns:
+          - "*"
