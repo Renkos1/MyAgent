@@ -1,0 +1,35 @@
+version: 2
+
+updates:
+  # ① npm 依赖
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+
+    # 一次最多 5 个 PR —— 再多就没人看了，没人看的自动化等于没有
+    open-pull-requests-limit: 5
+
+    # ★和 pnpm 的 minimumReleaseAge 对齐★
+    # pnpm 11 默认拒绝安装 24 小时内发布的版本（防的是"发出来几小时就被撤下"
+    # 的投毒版本）。Dependabot 不等的话，它开的 PR 头一天必然 CI 红。
+    cooldown:
+      default-days: 3
+      semver-patch-days: 2
+
+    groups:
+      # 开发依赖的 minor / patch 合成一个 PR。
+      # 不分组的话每周开一堆，两周后你就开始无视它们了。
+      dev-minor-and-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # ② workflow 里 uses: 的 action 版本
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
