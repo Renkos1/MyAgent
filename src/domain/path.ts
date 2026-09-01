@@ -1,4 +1,7 @@
+import path from "node:path";
+
 import type { Result } from "./result.ts";
+import { err, ok } from "./result.ts";
 
 /**
  * 路径校验失败的原因。
@@ -54,11 +57,39 @@ export type PathError =
  * @param root      仓库根目录的绝对路径
  * @param candidate 待校验的路径（仓库相对）
  */
+/** NUL 字节。fs 遇到它会抛 ERR_INVALID_ARG_VALUE，在这一层先拒掉。 */
+const NUL = "\u0000";
+
 export function resolveInsideRoot(
   root: string,
   candidate: string,
 ): Result<string, PathError> {
-  throw new Error(
-    `resolveInsideRoot(${root}, ${candidate}) 还没实现 —— 契约已定，等实现`,
-  );
+  if (candidate === "") return err({ kind: "empty" });
+  if (candidate.includes(NUL)) return err({ kind: "nul-byte" });
+
+  // 契约④：反斜杠当分隔符。必须在 isAbsolute / resolve 之前做，
+  // 否则 "..\..\x" 在 POSIX 下会被当成一个含反斜杠的文件名而不是穿越。
+  const normalized = candidate.replaceAll("\\", "/");
+
+  // 契约⑥：绝对路径一律拒绝，即使它指向 root 内部。
+  // 也必须在 resolve 之前判断 —— resolve 遇到绝对路径会丢弃左边所有参数，
+  // root 就完全失效了。
+  if (path.posix.isAbsolute(normalized)) return err({ kind: "absolute" });
+
+  // ★用 path.posix 而不是 path★：开发在 Windows、运行在 Linux，
+  // path.resolve 在 Windows 上会补盘符（C:\repo\...），两边行为不一致。
+  const abs = path.posix.resolve(root, normalized);
+
+  // ★不能用 abs.startsWith(root)★ —— 那是字符串前缀比较，不懂分隔符，
+  // "/repo-evil" 也以 "/repo" 开头（CWE-22）。
+  // 正确判据：要走出 root，从 root 出发的第一步必然是 ".."。
+  const rel = path.posix.relative(root, abs);
+  if (rel === ".." || rel.startsWith(`..${path.posix.sep}`)) {
+    return err({ kind: "escapes-root" });
+  }
+
+  // 契约③：尾斜杠保留。resolve 会把它吃掉，这里补回来。
+  // rel === "" 表示目标就是 root 自己，那时不补（避免 "/repo" → "/repo/"）。
+  const keepTrailingSlash = normalized.endsWith("/") && !abs.endsWith("/");
+  return ok(keepTrailingSlash ? `${abs}/` : abs);
 }
