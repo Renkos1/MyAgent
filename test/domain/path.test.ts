@@ -66,8 +66,8 @@ describe("resolveInsideRoot", () => {
       },
       {
         candidate: "/test/eval.txt",
-        expected: "/test/eval.txt",
-        why: "当输入是根目录开始的绝对路径时满足",
+        expected: "absolute",
+        why: "输入是绝对路径是一律拒绝",
       },
     ])(
       "$why: resolveInsideRoot(root, $candidate) -> $expected",
@@ -76,13 +76,14 @@ describe("resolveInsideRoot", () => {
         if (result.ok) {
           expect(result.value).toBe(expected);
         } else {
-          expect(result.error).toContain(expected);
+          expect(result.error.kind).toContain(expected);
         }
       },
     );
     it("当输入异常时，报错是否返回错误路径", () => {
       const candidate = "/src";
       const result = resolveInsideRoot(root, candidate);
+      expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toContain(candidate);
     });
   });
