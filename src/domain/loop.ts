@@ -10,17 +10,19 @@
  */
 import { type Result } from "./result.ts";
 
-export type loopError = { readonly kind: "Max输入值非法" };
+export type loopError =
+  | { readonly kind: "modelCallMaxError" }
+  | { readonly kind: "toolRunsMaxError" };
 
 export type resultState =
   | { readonly kind: "正常返回"; turn: number }
   | { readonly kind: "达到上限"; turn: number; max: number }
   | { readonly kind: "中途中止"; turn: number };
 
+export function loopCheck(modelCallMax: number, toolRunsMax: number);
 export function loopState(
   modelCallMax: number,
   toolRunsMax: number,
-  signal?: AbortSignal,
 ): Result<resultState, loopError> {
   throw Error("None");
 }

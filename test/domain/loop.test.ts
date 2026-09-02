@@ -1,34 +1,56 @@
 import { describe, expect, it } from "vitest";
 import { loopState } from "../../src/domain/loop.ts";
-import { err, ok } from "../../src/domain/result.ts";
-import { maxHeaderSize } from "http";
 
 describe("loopState", () => {
   describe("异常返回", () => {
     it.each([
       {
-        why: "输入为0",
+        why: "modelCallMax输入为0",
         modelCallMax: 0,
         toolsRunsMax: 0,
-        kind: "Max输入值非法",
+        kind: "modelCallMaxError",
       },
       {
-        why: "输入为负数",
+        why: "modelCallMax输入为负数",
         modelCallMax: -1,
         toolsRunsMax: 1,
-        kind: "Max输入值非法",
+        kind: "modelCallMaxError",
       },
       {
-        why: "输入为小数",
-        modelCallMax: 2,
-        toolsRunsMax: 3.3,
-        kind: "Max输入值非法",
+        why: "modelCallMax输入为小数",
+        modelCallMax: 2.2,
+        toolsRunsMax: 3,
+        kind: "modelCallMaxError",
       },
       {
-        why: "输入为小数",
+        why: "modelCallMax输入为Infinity",
         modelCallMax: Infinity,
         toolsRunsMax: 3,
-        kind: "Max输入值非法",
+        kind: "modelCallMaxError",
+      },
+      {
+        why: "toolsRunsMax输入为0",
+        modelCallMax: 1,
+        toolsRunsMax: 0,
+        kind: "toolRunsMaxError",
+      },
+      {
+        why: "toolsRunsMax输入为负数",
+        modelCallMax: 1,
+        toolsRunsMax: -1,
+        kind: "toolRunsMaxError",
+      },
+      {
+        why: "toolsRunsMax输入为小数",
+        modelCallMax: 2,
+        toolsRunsMax: 3.3,
+        kind: "toolRunsMaxError",
+      },
+      {
+        why: "toolsRunsMax输入为Infinity",
+        modelCallMax: 3,
+        toolsRunsMax: Infinity,
+        kind: "toolRunsMaxError",
       },
     ])(
       "$why|modelCallMax|toolsRunsMax -> $kind",
@@ -53,7 +75,7 @@ describe("loopState", () => {
       "$why|modelCallMax|toolsRunsMax -> $kind|$turn",
       ({ modelCallMax, toolsRunsMax, kind, turn }) => {
         expect(loopState(modelCallMax, toolsRunsMax)).toEqual({
-          ok: ok,
+          ok: true,
           value: { kind, turn },
         });
       },
