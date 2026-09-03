@@ -15,7 +15,6 @@ import {
   recordModelCall,
   recordToolRuns,
 } from "../../src/domain/loop.ts";
-import type { WatchEventType } from "fs";
 
 function stateOf(
   maxModelCalls: number,
@@ -127,31 +126,31 @@ describe("measureInputText", () => {
     {
       why: "输入 hello",
       text: "hello",
-      unit: "prapheme",
+      unit: "grapheme",
       value: 5,
     },
     {
       why: "输入 你好",
       text: "你好",
-      unit: "prapheme",
+      unit: "grapheme",
       value: 2,
     },
     {
       why: "输入 𝕏",
       text: "𝕏",
-      unit: "prapheme",
+      unit: "grapheme",
       value: 1,
     },
     {
       why: "输入 👍",
       text: "👍",
-      unit: "prapheme",
+      unit: "grapheme",
       value: 1,
     },
     {
       why: "输入 👨‍👩‍👧",
       text: "👨‍👩‍👧",
-      unit: "prapheme",
+      unit: "grapheme",
       value: 1,
     },
   ])("$why|{$text, $unit} → $value", ({ text, unit, value }) => {
