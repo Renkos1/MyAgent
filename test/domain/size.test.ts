@@ -1,280 +1,201 @@
 import { describe, expect, it } from "vitest";
-import {
-  checkSize,
-  measureInputText,
-  type LimitHandler,
-  type UnitType,
-} from "../../src/domain/size.ts";
-import type {
-  InvalidCount,
-  LimitReached,
-  LoopState,
-} from "../../src/domain/loop.ts";
-import {
-  createLoopState,
-  recordModelCall,
-  recordToolRuns,
-} from "../../src/domain/loop.ts";
 
-function stateOf(
-  maxModelCalls: number,
-  maxToolRuns: number,
-  maxInputTextLength: number,
-): LoopState {
-  const r = createLoopState({ maxModelCalls, maxToolRuns, maxInputTextLength });
-  if (!r.ok) throw new Error(`脚手架：上限应该合法，却被拒了 ${r.error.limit}`);
-  return r.value;
-}
+import { measure, truncateToBytes } from "../../src/domain/size.ts";
 
-describe("measureInputText", () => {
+/**
+ * ⚠ 组合重音必须写成 ́ 转义。
+ * 直接在源码里贴 "é" 的组合形式，编辑器 / 终端 / git 都可能悄悄把它
+ * 归一化成预组合形式，测试就测不到"同一个字两种长度"这件事了。
+ */
+const E_COMBINING = "e\u0301"; // e + U+0301，看起来是 é
+const E_PRECOMPOSED = "\u00e9"; // 单个码点的 é
+const LONE_SURROGATE = "👍".slice(0, 1); // 半个代理对，不良构
+
+describe("measure", () => {
+  // 一行一个字符串，四个单位一起断言 ——
+  // ★这样每一行本身就是"同一个东西四个数字"的证据★
   it.each<{
     why: string;
     text: string;
-    unit: UnitType;
-    value: number;
+    utf8: number;
+    utf16: number;
+    codePoints: number;
+    graphemes: number;
   }>([
+    { why: "空串", text: "", utf8: 0, utf16: 0, codePoints: 0, graphemes: 0 },
     {
-      why: "输入 hello",
+      why: "纯 ASCII，四个数字相同",
       text: "hello",
-      unit: "utf-16",
-      value: 5,
+      utf8: 5,
+      utf16: 5,
+      codePoints: 5,
+      graphemes: 5,
     },
     {
-      why: "输入 你好",
+      why: "中文：字节是长度的 3 倍",
       text: "你好",
-      unit: "utf-16",
-      value: 2,
+      utf8: 6,
+      utf16: 2,
+      codePoints: 2,
+      graphemes: 2,
+    },
+    // ★这两行是一对★：屏幕上一模一样，四个数字有三个不同
+    {
+      why: "★组合重音★ e + U+0301",
+      text: E_COMBINING,
+      utf8: 3,
+      utf16: 2,
+      codePoints: 2,
+      graphemes: 1,
     },
     {
-      why: "输入 𝕏",
+      why: "★预组合★ U+00E9，看起来完全一样",
+      text: E_PRECOMPOSED,
+      utf8: 2,
+      utf16: 1,
+      codePoints: 1,
+      graphemes: 1,
+    },
+    {
+      why: "星平面字母：utf16 是 2，码点是 1",
       text: "𝕏",
-      unit: "utf-16",
-      value: 2,
+      utf8: 4,
+      utf16: 2,
+      codePoints: 1,
+      graphemes: 1,
     },
     {
-      why: "输入 👍",
+      why: "emoji",
       text: "👍",
-      unit: "utf-16",
-      value: 2,
+      utf8: 4,
+      utf16: 2,
+      codePoints: 1,
+      graphemes: 1,
     },
     {
-      why: "输入 👨‍👩‍👧",
+      why: "★ZWJ 家庭★ 1 和 18 差 18 倍",
       text: "👨‍👩‍👧",
-      unit: "utf-16",
-      value: 8,
+      utf8: 18,
+      utf16: 8,
+      codePoints: 5,
+      graphemes: 1,
     },
     {
-      why: "输入 hello",
-      text: "hello",
-      unit: "code-point",
-      value: 5,
+      why: "国旗 = 两个区域指示符",
+      text: "🇯🇵",
+      utf8: 8,
+      utf16: 4,
+      codePoints: 2,
+      graphemes: 1,
     },
+    // ★半截字符★：utf8 不是 2 —— 半个代理对没有 UTF-8 编码，
+    // 只能被替换成 U+FFFD（3 字节）。见 docs/01 第 12 节。
     {
-      why: "输入 你好",
-      text: "你好",
-      unit: "code-point",
-      value: 2,
+      why: "★半个代理对★ utf8 是 3 不是 2",
+      text: LONE_SURROGATE,
+      utf8: 3,
+      utf16: 1,
+      codePoints: 1,
+      graphemes: 1,
     },
-    {
-      why: "输入 𝕏",
-      text: "𝕏",
-      unit: "code-point",
-      value: 1,
+  ])(
+    "$why｜$utf8 / $utf16 / $codePoints / $graphemes",
+    ({ text, utf8, utf16, codePoints, graphemes }) => {
+      expect({
+        "utf-8": measure(text, "utf-8"),
+        "utf-16": measure(text, "utf-16"),
+        "code-point": measure(text, "code-point"),
+        grapheme: measure(text, "grapheme"),
+      }).toEqual({
+        "utf-8": utf8,
+        "utf-16": utf16,
+        "code-point": codePoints,
+        grapheme: graphemes,
+      });
     },
-    {
-      why: "输入 👍",
-      text: "👍",
-      unit: "code-point",
-      value: 1,
-    },
-    {
-      why: "输入 👨‍👩‍👧",
-      text: "👨‍👩‍👧",
-      unit: "code-point",
-      value: 5,
-    },
-    {
-      why: "输入 hello",
-      text: "hello",
-      unit: "utf-8",
-      value: 5,
-    },
-    {
-      why: "输入 你好",
-      text: "你好",
-      unit: "utf-8",
-      value: 6,
-    },
-    {
-      why: "输入 𝕏",
-      text: "𝕏",
-      unit: "utf-8",
-      value: 4,
-    },
-    {
-      why: "输入 👍",
-      text: "👍",
-      unit: "utf-8",
-      value: 4,
-    },
-    {
-      why: "输入 👨‍👩‍👧",
-      text: "👨‍👩‍👧",
-      unit: "utf-8",
-      value: 18,
-    },
-    {
-      why: "输入 hello",
-      text: "hello",
-      unit: "grapheme",
-      value: 5,
-    },
-    {
-      why: "输入 你好",
-      text: "你好",
-      unit: "grapheme",
-      value: 2,
-    },
-    {
-      why: "输入 𝕏",
-      text: "𝕏",
-      unit: "grapheme",
-      value: 1,
-    },
-    {
-      why: "输入 👍",
-      text: "👍",
-      unit: "grapheme",
-      value: 1,
-    },
-    {
-      why: "输入 👨‍👩‍👧",
-      text: "👨‍👩‍👧",
-      unit: "grapheme",
-      value: 1,
-    },
-  ])("$why|{$text, $unit} → $value", ({ text, unit, value }) => {
-    expect(measureInputText(text, unit)).toEqual({
-      unit,
-      value,
-    });
-  });
+  );
 });
 
-describe("checkSize", () => {
-  describe("大小满足上限", () => {
-    it.each<{
-      why: string;
-      size: number[];
-      max: number;
-      value: number;
-    }>([
+describe("truncateToBytes", () => {
+  describe("不超限：原样返回", () => {
+    it.each<{ why: string; text: string; max: number }>([
+      { why: "空串", text: "", max: 10 },
+      { why: "正好等于上限", text: "hello", max: 5 },
+      { why: "★正好等于上限，有换行也不切★", text: "abc\ndef\nghi", max: 11 },
+      { why: "中文正好等于上限", text: "你好世界", max: 12 },
+      { why: "上限远大于内容", text: "hi", max: 1000 },
+    ])("$why｜$max", ({ text, max }) => {
+      expect(truncateToBytes(text, max)).toBe(text);
+    });
+  });
+
+  describe("有换行：退到最近的换行（保留换行本身）", () => {
+    it.each<{ why: string; text: string; max: number; kept: string }>([
+      // ★和上面"正好等于上限"那行只差 1 个字节，结果差 3 个字节★
+      { why: "上限 −1", text: "abc\ndef\nghi", max: 10, kept: "abc\ndef\n" },
+      { why: "退两段", text: "abc\ndef\nghi", max: 7, kept: "abc\n" },
       {
-        why: "",
-        size: [1],
-        max: 1,
-        value: 1,
+        why: "安全前缀刚好以换行结尾",
+        text: "abc\ndef\nghi",
+        max: 4,
+        kept: "abc\n",
       },
       {
-        why: "",
-        size: [1, 2],
+        why: "★退无可退：前缀里没有换行★",
+        text: "abc\ndef\nghi",
         max: 3,
-        value: 3,
+        kept: "abc",
       },
-      {
-        why: "",
-        size: [100, 221],
-        max: 1000,
-        value: 321,
-      },
-    ])("$why| {$size, $max} → $value", ({ size, max, value }) => {
-      expect(checkSize(size, stateOf(1, 1, max).limits)).toEqual({
-        ok: true,
-        value: value,
-      });
+    ])("$why｜max=$max", ({ text, max, kept }) => {
+      expect(truncateToBytes(text, max)).toBe(kept);
     });
   });
 
-  describe("单个大小不满足上限", () => {
-    it.each<{
-      why: string;
-      size: number[];
-      index: number;
-      max: number;
-      value: number;
-    }>([
+  describe("没有换行：退到最近的字素簇边界", () => {
+    it.each<{ why: string; text: string; max: number; kept: string }>([
       {
-        why: "",
-        size: [101],
-        index: 0,
-        max: 100,
-        value: 101,
+        why: "多余 1 字节，退掉一整个字",
+        text: "你好世界",
+        max: 11,
+        kept: "你好世",
       },
-      {
-        why: "",
-        size: [1, 51],
-        index: 1,
-        max: 50,
-        value: 51,
-      },
-    ])(
-      "$why| {$size, $max} → {$value, $index}",
-      ({ size, index, max, value }) => {
-        expect(checkSize(size, stateOf(1, 1, max).limits)).toEqual({
-          ok: false,
-          value: {
-            kind: "single",
-            index,
-            value,
-            max,
-          },
-        });
-      },
-    );
+      { why: "只放得下一个字", text: "你好世界", max: 5, kept: "你" },
+      { why: "★一个字都放不下 → 空串★", text: "你好世界", max: 2, kept: "" },
+      // ★关键★：max=5 时 emoji 占 4 字节，绝不会切出半个
+      { why: "★绝不切碎 emoji★", text: "👍👍", max: 5, kept: "👍" },
+      { why: "ZWJ 家庭整个保住", text: "👨‍👩‍👧x", max: 18, kept: "👨‍👩‍👧" },
+      { why: "ZWJ 家庭差 1 字节，整个丢掉", text: "👨‍👩‍👧x", max: 17, kept: "" },
+    ])("$why｜max=$max", ({ text, max, kept }) => {
+      expect(truncateToBytes(text, max)).toBe(kept);
+    });
   });
 
-  describe("总大小不满足上限", () => {
-    it.each<{
-      why: string;
-      size: number[];
-      max: number;
-      value: number;
-    }>([
-      {
-        why: "",
-        size: [1],
-        max: 1,
-        value: 1,
-      },
-    ])("$why| {$size, $max} → {$value, $index}", ({ size, max, value }) => {
-      expect(checkSize(size, stateOf(1, 1, max).limits)).toEqual({
-        ok: false,
-        value: {
-          kind: "aggregate",
-          value,
-          max,
-        },
-      });
+  // ── 不变量 ──────────────────────────────────────────────────
+  // 例子测试验证"我想到的情况"，不变量搜索"我没想到的"。
+  // 阶段 1.5 接 fast-check 时，这三条会长成属性测试。
+  describe("不变量（遍历 0..24 的每一个上限）", () => {
+    const SAMPLE = "报告：👨‍👩‍👧 一家人\n第二行\n第三行";
+    const maxes = Array.from({ length: 25 }, (_, i) => i);
+
+    it("★结果永远是良构 Unicode★ —— 从不切碎字符", () => {
+      const bad = maxes.filter(
+        (m) => !truncateToBytes(SAMPLE, m).isWellFormed(),
+      );
+      expect(bad).toEqual([]);
+    });
+
+    it("★结果的字节数永远不超过上限★", () => {
+      const over = maxes.filter(
+        (m) => measure(truncateToBytes(SAMPLE, m), "utf-8") > m,
+      );
+      expect(over).toEqual([]);
+    });
+
+    it("★结果永远是原文的前缀★ —— 只删不改", () => {
+      const notPrefix = maxes.filter(
+        (m) => !SAMPLE.startsWith(truncateToBytes(SAMPLE, m)),
+      );
+      expect(notPrefix).toEqual([]);
     });
   });
 });
-
-describe("parseInputText", () => {
-  it.each<{
-    why: string;
-    text: string;
-    mode: LimitHandler;
-    value: number;
-  }>([])("$why| {text, mode} → value", ({}) => {
-    expect(checkSize(size, stateOf(1, 1, max).limits)).toEqual({
-      ok: false,
-      value: {
-        kind: "aggregate",
-        value,
-        max,
-      },
-    });
-  });
-});
-
-describe("不变量", () => {});
