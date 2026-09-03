@@ -67,7 +67,7 @@ import { err, ok } from "./result.ts";
 declare const brand: unique symbol;
 
 /** 哪一个上限。两者的处理方式相同，所以是同一个 kind 的参数，不是两个 kind。 */
-export type LimitName = "model-calls" | "tool-runs";
+export type LimitName = "model-calls" | "tool-runs" | "input-text-length";
 
 /** 构造时上限值非法。来自配置，所以可以带上原值。 */
 export type InvalidLimit = {
@@ -93,6 +93,7 @@ export type LimitReached = {
 export type LoopLimits = {
   readonly maxModelCalls: number;
   readonly maxToolRuns: number;
+  readonly maxInputTextLength: number;
 };
 
 /**
@@ -106,6 +107,7 @@ export type LoopState = {
   readonly limits: LoopLimits;
   readonly modelCalls: number;
   readonly toolRuns: number;
+  readonly characterCount: number;
   readonly [brand]: true;
 };
 
@@ -132,10 +134,18 @@ export function createLoopState(
       value: limits.maxToolRuns,
     });
   }
+  if (!isValidCount(limits.maxInputTextLength)) {
+    return err({
+      kind: "invalid-limit",
+      limit: "input-text-length",
+      value: limits.maxInputTextLength,
+    });
+  }
   return ok({
     limits,
     modelCalls: 0,
     toolRuns: 0,
+    characterCount: 0,
   } as LoopState);
 }
 
