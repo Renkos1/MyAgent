@@ -1,3 +1,7 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { PathError } from "../../src/domain/path.ts";
@@ -131,8 +135,10 @@ describe("resolveInsideRoot", () => {
     it("★不读 process.cwd()★：换掉 cwd 结果不变", () => {
       const before = resolveInsideRoot(ROOT, "docs/a.md");
       const cwd = process.cwd();
+      const tempDir = mkdtempSync(path.join(tmpdir(), "resolveInsideRoot-"));
+
       try {
-        process.chdir("/tmp");
+        process.chdir(tempDir);
         expect(resolveInsideRoot(ROOT, "docs/a.md")).toEqual(before);
       } finally {
         process.chdir(cwd);
