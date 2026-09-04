@@ -12,3 +12,6 @@ trim_trailing_whitespace = true
 [*.md]
 # Markdown 行尾两个空格 = 硬换行，不能被 trim 掉
 trim_trailing_whitespace = false
+
+[*.{bat,cmd,ps1}]              # Windows 脚本例外
+end_of_line = crlf             # 必须 CRLF
