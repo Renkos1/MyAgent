@@ -7,6 +7,7 @@ import type {
 } from "../../src/domain/loop.ts";
 import {
   createLoopState,
+  recordInputBytes,
   recordModelCall,
   recordToolRuns,
 } from "../../src/domain/loop.ts";
@@ -17,9 +18,12 @@ import { ok } from "../../src/domain/result.ts";
 // ★脚手架里可以有分支，断言里不能。★
 // 分支写在这里，每个 it 的 body 就能保持「一句整体断言」。
 
+/** 本组测试不关心字节上限，给一个够大的固定值，让它不参与鉴别。 */
+const BYTES_UNUSED = { maxInputBytesPerItem: 4096, maxInputBytesTotal: 65536 };
+
 /** 造一个上限合法的初始状态。上限不合法说明测试自己写错了。 */
 function stateOf(maxModelCalls: number, maxToolRuns: number): LoopState {
-  const r = createLoopState({ maxModelCalls, maxToolRuns });
+  const r = createLoopState({ maxModelCalls, maxToolRuns, ...BYTES_UNUSED });
   if (!r.ok) throw new Error(`脚手架：上限应该合法，却被拒了 ${r.error.limit}`);
   return r.value;
 }
@@ -51,12 +55,39 @@ function runTools(
 }
 
 // ══════════════════════════════════════════════════════════════
+/** 本组只关心字节上限，模型/工具上限给够大的固定值。 */
+function bytesStateOf(total: number): LoopState {
+  const r = createLoopState({
+    maxModelCalls: 9,
+    maxToolRuns: 9,
+    maxInputBytesPerItem: 4096,
+    maxInputBytesTotal: total,
+  });
+  if (!r.ok) throw new Error(`脚手架：上限应该合法，却被拒了 ${r.error.limit}`);
+  return r.value;
+}
+
+/** 连续记 batches 里的每一段字节数，中途失败原样返回。 */
+function recordBytes(
+  state: LoopState,
+  batches: readonly number[],
+): Result<LoopState, LimitReached | InvalidCount> {
+  let r: Result<LoopState, LimitReached | InvalidCount> = ok(state);
+  for (const n of batches) {
+    if (!r.ok) return r;
+    r = recordInputBytes(r.value, n);
+  }
+  return r;
+}
+
 describe("createLoopState", () => {
   describe("拒绝非法上限", () => {
     it.each<{
       why: string;
       model: number;
       tool: number;
+      perItem?: number;
+      total?: number;
       limit: string;
       value: number;
     }>([
@@ -105,20 +136,47 @@ describe("createLoopState", () => {
 
       // 契约③：两个都非法时只报第一个
       {
-        why: "两个都非法，只报 model-calls",
+        why: "单段字节上限为 0",
+        model: 1,
+        tool: 1,
+        perItem: 0,
+        limit: "input-bytes-per-item",
+        value: 0,
+      },
+      {
+        why: "总字节上限是小数",
+        model: 1,
+        tool: 1,
+        total: 1.5,
+        limit: "input-bytes-total",
+        value: 1.5,
+      },
+      // 契约③：多个都非法时只报第一个，顺序是 model → tool → perItem → total
+      {
+        why: "★四个都非法，只报 model-calls★",
         model: 0,
         tool: 0,
+        perItem: 0,
+        total: 0,
         limit: "model-calls",
         value: 0,
       },
-    ])("$why｜{$model, $tool} → $limit", ({ model, tool, limit, value }) => {
-      expect(
-        createLoopState({ maxModelCalls: model, maxToolRuns: tool }),
-      ).toEqual({
-        ok: false,
-        error: { kind: "invalid-limit", limit, value },
-      });
-    });
+    ])(
+      "$why｜{$model, $tool} → $limit",
+      ({ model, tool, perItem, total, limit, value }) => {
+        expect(
+          createLoopState({
+            maxModelCalls: model,
+            maxToolRuns: tool,
+            maxInputBytesPerItem: perItem ?? BYTES_UNUSED.maxInputBytesPerItem,
+            maxInputBytesTotal: total ?? BYTES_UNUSED.maxInputBytesTotal,
+          }),
+        ).toEqual({
+          ok: false,
+          error: { kind: "invalid-limit", limit, value },
+        });
+      },
+    );
   });
 
   describe("接受合法上限，计数从 0 起", () => {
@@ -128,13 +186,18 @@ describe("createLoopState", () => {
       { why: "安全整数的上边界", model: Number.MAX_SAFE_INTEGER, tool: 1 },
     ])("$why｜{$model, $tool}", ({ model, tool }) => {
       expect(
-        createLoopState({ maxModelCalls: model, maxToolRuns: tool }),
+        createLoopState({
+          maxModelCalls: model,
+          maxToolRuns: tool,
+          ...BYTES_UNUSED,
+        }),
       ).toEqual({
         ok: true,
         value: {
-          limits: { maxModelCalls: model, maxToolRuns: tool },
+          limits: { maxModelCalls: model, maxToolRuns: tool, ...BYTES_UNUSED },
           modelCalls: 0,
           toolRuns: 0,
+          inputBytes: 0,
         },
       });
     });
@@ -158,9 +221,14 @@ describe("recordModelCall", () => {
       expect(callModel(stateOf(max, TOOL_MAX), times)).toEqual({
         ok: true,
         value: {
-          limits: { maxModelCalls: max, maxToolRuns: TOOL_MAX },
+          limits: {
+            maxModelCalls: max,
+            maxToolRuns: TOOL_MAX,
+            ...BYTES_UNUSED,
+          },
           modelCalls: times,
           toolRuns: 0,
+          inputBytes: 0,
         },
       });
     });
@@ -199,9 +267,14 @@ describe("recordToolRuns", () => {
         expect(runTools(stateOf(MODEL_MAX, max), batches)).toEqual({
           ok: true,
           value: {
-            limits: { maxModelCalls: MODEL_MAX, maxToolRuns: max },
+            limits: {
+              maxModelCalls: MODEL_MAX,
+              maxToolRuns: max,
+              ...BYTES_UNUSED,
+            },
             modelCalls: 0,
             toolRuns: total,
+            inputBytes: 0,
           },
         });
       },
@@ -249,6 +322,77 @@ describe("recordToolRuns", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
+describe("recordInputBytes", () => {
+  describe("额度内", () => {
+    it.each<{ why: string; total: number; batches: number[]; used: number }>([
+      { why: "一段", total: 100, batches: [10], used: 10 },
+      { why: "两段累加", total: 100, batches: [10, 20], used: 30 },
+      { why: "★正好用完★", total: 30, batches: [10, 20], used: 30 },
+      // ★这一条和 recordToolRuns 相反★：那边 count=0 非法（一次响应要 0 个
+      // 工具说明上游出错了），这边 bytes=0 合法 —— 0 字节的文件真实存在。
+      { why: "★空文件：0 字节合法★", total: 100, batches: [0], used: 0 },
+      { why: "多段 0 字节", total: 100, batches: [0, 0, 5], used: 5 },
+    ])(
+      "$why｜上限 $total，批次 $batches → $used",
+      ({ total, batches, used }) => {
+        expect(recordBytes(bytesStateOf(total), batches)).toEqual({
+          ok: true,
+          value: {
+            limits: {
+              maxModelCalls: 9,
+              maxToolRuns: 9,
+              maxInputBytesPerItem: 4096,
+              maxInputBytesTotal: total,
+            },
+            modelCalls: 0,
+            toolRuns: 0,
+            inputBytes: used,
+          },
+        });
+      },
+    );
+  });
+
+  describe("超出额度", () => {
+    it.each<{ why: string; total: number; batches: number[]; used: number }>([
+      { why: "第二段超了", total: 30, batches: [10, 21], used: 10 },
+      {
+        why: "★原子性：第一段就超，一个字节不记★",
+        total: 10,
+        batches: [11],
+        used: 0,
+      },
+      { why: "用满之后再来一个字节", total: 30, batches: [30, 1], used: 30 },
+    ])("$why｜上限 $total → used=$used", ({ total, batches, used }) => {
+      expect(recordBytes(bytesStateOf(total), batches)).toEqual({
+        ok: false,
+        error: {
+          kind: "limit-reached",
+          limit: "input-bytes-total",
+          used,
+          max: total,
+        },
+      });
+    });
+  });
+
+  describe("拒绝非法的字节数", () => {
+    it.each<{ why: string; bytes: number }>([
+      { why: "负数", bytes: -1 },
+      { why: "小数", bytes: 2.5 },
+      { why: "Infinity", bytes: Infinity },
+      { why: "NaN", bytes: NaN },
+      { why: "超出安全整数", bytes: 2 ** 53 },
+    ])("$why｜bytes=$bytes", ({ bytes }) => {
+      expect(recordInputBytes(bytesStateOf(100), bytes)).toEqual({
+        ok: false,
+        error: { kind: "invalid-count", value: bytes },
+      });
+    });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
 // 不变量：不是「某个输入 → 某个输出」，是「对所有输入都成立的性质」。
 describe("不变量", () => {
   it("★纯函数★：调用之后，传进去的那个 state 一模一样", () => {
@@ -266,7 +410,7 @@ describe("不变量", () => {
     const afterModel = recordModelCall(s0);
     expect(afterModel).toEqual({
       ok: true,
-      value: { limits: s0.limits, modelCalls: 1, toolRuns: 0 },
+      value: { limits: s0.limits, modelCalls: 1, toolRuns: 0, inputBytes: 0 },
     });
   });
 
@@ -285,9 +429,10 @@ describe("不变量", () => {
     expect(recordToolRuns(used.value, 3)).toEqual({
       ok: true,
       value: {
-        limits: { maxModelCalls: 1, maxToolRuns: 3 },
+        limits: { maxModelCalls: 1, maxToolRuns: 3, ...BYTES_UNUSED },
         modelCalls: 1,
         toolRuns: 3,
+        inputBytes: 0,
       },
     });
   });

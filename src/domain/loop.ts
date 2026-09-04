@@ -67,7 +67,8 @@ import { err, ok } from "./result.ts";
 declare const brand: unique symbol;
 
 /** 哪一个上限。两者的处理方式相同，所以是同一个 kind 的参数，不是两个 kind。 */
-export type LimitName = "model-calls" | "tool-runs";
+export type LimitName =
+  "model-calls" | "tool-runs" | "input-bytes-per-item" | "input-bytes-total";
 
 /** 构造时上限值非法。来自配置，所以可以带上原值。 */
 export type InvalidLimit = {
@@ -93,6 +94,10 @@ export type LimitReached = {
 export type LoopLimits = {
   readonly maxModelCalls: number;
   readonly maxToolRuns: number;
+  /** 单个文本的字节上限。★由 input.ts 判★ —— 它是无状态的规则。 */
+  readonly maxInputBytesPerItem: number;
+  /** 累计输入的字节上限。由本模块的 recordInputBytes 判 —— 它需要状态。 */
+  readonly maxInputBytesTotal: number;
 };
 
 /**
@@ -106,6 +111,7 @@ export type LoopState = {
   readonly limits: LoopLimits;
   readonly modelCalls: number;
   readonly toolRuns: number;
+  readonly inputBytes: number;
   readonly [brand]: true;
 };
 
@@ -132,10 +138,25 @@ export function createLoopState(
       value: limits.maxToolRuns,
     });
   }
+  if (!isValidCount(limits.maxInputBytesPerItem)) {
+    return err({
+      kind: "invalid-limit",
+      limit: "input-bytes-per-item",
+      value: limits.maxInputBytesPerItem,
+    });
+  }
+  if (!isValidCount(limits.maxInputBytesTotal)) {
+    return err({
+      kind: "invalid-limit",
+      limit: "input-bytes-total",
+      value: limits.maxInputBytesTotal,
+    });
+  }
   return ok({
     limits,
     modelCalls: 0,
     toolRuns: 0,
+    inputBytes: 0,
   } as LoopState);
 }
 
@@ -176,4 +197,29 @@ export function recordToolRuns(
     });
   }
   return ok({ ...state, toolRuns: state.toolRuns + count });
+}
+
+/**
+ * 记一段输入的字节数。★只判总和★ —— 单个文本的上限是无状态规则，
+ * 由 input.ts 在测量的时候就地判掉，不必进到状态里。
+ *
+ * 和 recordToolRuns 一样是原子的：额度不够就一个字节都不记（契约⑥）。
+ */
+export function recordInputBytes(
+  state: LoopState,
+  bytes: number,
+): Result<LoopState, LimitReached | InvalidCount> {
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    return err({ kind: "invalid-count", value: bytes });
+  }
+  const { maxInputBytesTotal } = state.limits;
+  if (state.inputBytes + bytes > maxInputBytesTotal) {
+    return err({
+      kind: "limit-reached",
+      limit: "input-bytes-total",
+      used: state.inputBytes,
+      max: maxInputBytesTotal,
+    });
+  }
+  return ok({ ...state, inputBytes: state.inputBytes + bytes });
 }
