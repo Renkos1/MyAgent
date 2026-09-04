@@ -1,7 +1,7 @@
 /**
  * 文本大小的测量与截断。
  *
- * ★这个模块不认识 LoopState，也不 import loop.ts。★
+ * ★这个模块不认识 LoopBudget，也不 import loop.ts。★
  * 它只回答两个问题：这段文本有多大、怎么把它切到指定大小以内。
  * 「切完之后预算怎么扣」是 input.ts 的事。
  *

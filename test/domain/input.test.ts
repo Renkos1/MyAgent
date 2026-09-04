@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { admitInput } from "../../src/domain/input.ts";
-import type { LoopState } from "../../src/domain/loop.ts";
-import { createLoopState } from "../../src/domain/loop.ts";
+import type { LoopBudget } from "../../src/domain/loop.ts";
+import { createLoopBudget } from "../../src/domain/loop.ts";
 
 const MODEL_MAX = 9;
 const TOOL_MAX = 9;
 
 /** perItem 和 total 是这一组唯一在变的两个数。 */
-function stateOf(perItem: number, total: number): LoopState {
-  const r = createLoopState({
+function stateOf(perItem: number, total: number): LoopBudget {
+  const r = createLoopBudget({
     maxModelCalls: MODEL_MAX,
     maxToolRuns: TOOL_MAX,
     maxInputBytesPerItem: perItem,
@@ -260,7 +260,7 @@ describe("admitInput", () => {
       expect(admitInput(stateOf(99, total), texts, "reject")).toEqual({
         ok: false,
         error: {
-          kind: "limit-reached",
+          kind: "insufficient-budget",
           limit: "input-bytes-total",
           used,
           max: total,

@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type {
   InvalidCount,
-  LimitReached,
-  LoopState,
+  InsufficientBudget,
+  LoopBudget,
 } from "../../src/domain/loop.ts";
 import {
-  createLoopState,
+  createLoopBudget,
   recordInputBytes,
   recordModelCall,
   recordToolRuns,
@@ -22,18 +22,18 @@ import { ok } from "../../src/domain/result.ts";
 const BYTES_UNUSED = { maxInputBytesPerItem: 4096, maxInputBytesTotal: 65536 };
 
 /** 造一个上限合法的初始状态。上限不合法说明测试自己写错了。 */
-function stateOf(maxModelCalls: number, maxToolRuns: number): LoopState {
-  const r = createLoopState({ maxModelCalls, maxToolRuns, ...BYTES_UNUSED });
+function stateOf(maxModelCalls: number, maxToolRuns: number): LoopBudget {
+  const r = createLoopBudget({ maxModelCalls, maxToolRuns, ...BYTES_UNUSED });
   if (!r.ok) throw new Error(`脚手架：上限应该合法，却被拒了 ${r.error.limit}`);
   return r.value;
 }
 
 /** 连续调 times 次模型，中途失败就把失败原样返回。 */
 function callModel(
-  state: LoopState,
+  state: LoopBudget,
   times: number,
-): Result<LoopState, LimitReached> {
-  let r: Result<LoopState, LimitReached> = ok(state);
+): Result<LoopBudget, InsufficientBudget> {
+  let r: Result<LoopBudget, InsufficientBudget> = ok(state);
   for (let i = 0; i < times; i++) {
     if (!r.ok) return r;
     r = recordModelCall(r.value);
@@ -43,10 +43,10 @@ function callModel(
 
 /** 按批次跑工具：[3, 2] 表示第一次响应要 3 个工具，第二次要 2 个。 */
 function runTools(
-  state: LoopState,
+  state: LoopBudget,
   batches: readonly number[],
-): Result<LoopState, LimitReached | InvalidCount> {
-  let r: Result<LoopState, LimitReached | InvalidCount> = ok(state);
+): Result<LoopBudget, InsufficientBudget | InvalidCount> {
+  let r: Result<LoopBudget, InsufficientBudget | InvalidCount> = ok(state);
   for (const n of batches) {
     if (!r.ok) return r;
     r = recordToolRuns(r.value, n);
@@ -56,8 +56,8 @@ function runTools(
 
 // ══════════════════════════════════════════════════════════════
 /** 本组只关心字节上限，模型/工具上限给够大的固定值。 */
-function bytesStateOf(total: number): LoopState {
-  const r = createLoopState({
+function bytesStateOf(total: number): LoopBudget {
+  const r = createLoopBudget({
     maxModelCalls: 9,
     maxToolRuns: 9,
     maxInputBytesPerItem: 4096,
@@ -69,10 +69,10 @@ function bytesStateOf(total: number): LoopState {
 
 /** 连续记 batches 里的每一段字节数，中途失败原样返回。 */
 function recordBytes(
-  state: LoopState,
+  state: LoopBudget,
   batches: readonly number[],
-): Result<LoopState, LimitReached | InvalidCount> {
-  let r: Result<LoopState, LimitReached | InvalidCount> = ok(state);
+): Result<LoopBudget, InsufficientBudget | InvalidCount> {
+  let r: Result<LoopBudget, InsufficientBudget | InvalidCount> = ok(state);
   for (const n of batches) {
     if (!r.ok) return r;
     r = recordInputBytes(r.value, n);
@@ -80,7 +80,7 @@ function recordBytes(
   return r;
 }
 
-describe("createLoopState", () => {
+describe("createLoopBudget", () => {
   describe("拒绝非法上限", () => {
     it.each<{
       why: string;
@@ -165,7 +165,7 @@ describe("createLoopState", () => {
       "$why｜{$model, $tool} → $limit",
       ({ model, tool, perItem, total, limit, value }) => {
         expect(
-          createLoopState({
+          createLoopBudget({
             maxModelCalls: model,
             maxToolRuns: tool,
             maxInputBytesPerItem: perItem ?? BYTES_UNUSED.maxInputBytesPerItem,
@@ -186,7 +186,7 @@ describe("createLoopState", () => {
       { why: "安全整数的上边界", model: Number.MAX_SAFE_INTEGER, tool: 1 },
     ])("$why｜{$model, $tool}", ({ model, tool }) => {
       expect(
-        createLoopState({
+        createLoopBudget({
           maxModelCalls: model,
           maxToolRuns: tool,
           ...BYTES_UNUSED,
@@ -245,7 +245,12 @@ describe("recordModelCall", () => {
     ])("上限 $max，调 $times 次 → 拒绝", ({ max, times }) => {
       expect(callModel(stateOf(max, TOOL_MAX), times)).toEqual({
         ok: false,
-        error: { kind: "limit-reached", limit: "model-calls", used: max, max },
+        error: {
+          kind: "insufficient-budget",
+          limit: "model-calls",
+          used: max,
+          max,
+        },
       });
     });
   });
@@ -298,7 +303,7 @@ describe("recordToolRuns", () => {
       ({ max, batches, used }) => {
         expect(runTools(stateOf(MODEL_MAX, max), batches)).toEqual({
           ok: false,
-          error: { kind: "limit-reached", limit: "tool-runs", used, max },
+          error: { kind: "insufficient-budget", limit: "tool-runs", used, max },
         });
       },
     );
@@ -367,7 +372,7 @@ describe("recordInputBytes", () => {
       expect(recordBytes(bytesStateOf(total), batches)).toEqual({
         ok: false,
         error: {
-          kind: "limit-reached",
+          kind: "insufficient-budget",
           limit: "input-bytes-total",
           used,
           max: total,
@@ -423,7 +428,12 @@ describe("不变量", () => {
     // 模型额度已满
     expect(recordModelCall(used.value)).toEqual({
       ok: false,
-      error: { kind: "limit-reached", limit: "model-calls", used: 1, max: 1 },
+      error: {
+        kind: "insufficient-budget",
+        limit: "model-calls",
+        used: 1,
+        max: 1,
+      },
     });
     // 工具额度不受影响
     expect(recordToolRuns(used.value, 3)).toEqual({

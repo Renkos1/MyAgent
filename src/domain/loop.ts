@@ -23,7 +23,7 @@ import { err, ok } from "./result.ts";
  *      代价：调用方要配两个数，也要处理两种「撞上限」。
  *
  * ② 形态？
- *      ★状态转换★：吃一个 LoopState，吐一个新的 LoopState。
+ *      ★状态转换★：吃一个 LoopBudget，吐一个新的 LoopBudget。
  *      不是谓词 —— 谓词可以被忘记调用，状态转换不能：
  *      你要拿到下一个 state，就必须经过这里，计数是它的副产品。
  *
@@ -37,11 +37,12 @@ import { err, ok } from "./result.ts";
  *      两个都非法时只报第一个（model-calls 优先）。
  *      代价：修完第一个才会发现第二个也错。
  *
- * ④ 撞上限是 ok 还是 err？
- *      ★err★。撞上限意味着「这个动作不能做」，调用方必须改变行为。
+ * ④ 预算不够是 ok 还是 err？
+ *      ★err★。预算不够意味着「这个动作不能做」，调用方必须改变行为。
  *      放进错误分支，类型系统会强迫它处理，忽略不了。
  *      代价：调用方每次都要 if (!r.ok)。
  *      错误里带 used / max —— 收尾时要告诉用户「跑了 N 轮，上限 N」。
+ *      ⚠ 用词见 docs/glossary.md：★上限★是配的那个数，★预算★是上限+已用。
  *
  * ⑤ 上限带不带出错的值？
  *      ★带★（InvalidLimit.value、InvalidCount.value）。
@@ -57,7 +58,7 @@ import { err, ok } from "./result.ts";
  *
  * ⑦ 给后面的阶段留位置？
  *      ★只留"加字段是便宜的"，不提前加参数。★
- *      大小上限（1.3）、终止条件（1.4）进来时，是往 LoopState 和
+ *      大小上限（1.3）、终止条件（1.4）进来时，是往 LoopBudget 和
  *      LoopLimits 各加一个字段 —— 双向门。
  *      现在就把 AbortSignal 塞进签名，是现在付成本、收益在两阶段之后，
  *      而且它可变、绑事件循环，会让这个函数不再是纯函数。
@@ -77,15 +78,28 @@ export type InvalidLimit = {
   readonly value: number;
 };
 
-/** 一次要跑的工具个数非法。来自适配器读到的响应，同样是自己的东西。 */
+/**
+ * 一个「应该是正整数的数量」不是正整数。来自适配器读到的响应，
+ * 同样是自己的东西，所以带上原值。
+ *
+ * ★turn.ts 复用这一个，不再自己定义 invalid-tool-count★ ——
+ * 同一个概念只能有一个名字（词表 docs/glossary.md）。
+ */
 export type InvalidCount = {
   readonly kind: "invalid-count";
   readonly value: number;
 };
 
-/** 撞上限。used 是已用掉的额度，max 是上限本身。 */
-export type LimitReached = {
-  readonly kind: "limit-reached";
+/**
+ * ★预算不够做这件事★。used 是已经用掉的，max 是上限。
+ *
+ * ⚠ 名字不叫 limit-reached，也不叫 budget-exhausted ——
+ *   ★那两个名字在原子拒绝的情形下是事实错误★：
+ *   max=5、used=3，一次要跑 3 个工具 → 报错，但上限没被 reached，
+ *   预算也没 exhausted。准确的说法只有「不够」。见 docs/decisions/0002。
+ */
+export type InsufficientBudget = {
+  readonly kind: "insufficient-budget";
   readonly limit: LimitName;
   readonly used: number;
   readonly max: number;
@@ -103,11 +117,11 @@ export type LoopLimits = {
 /**
  * 循环预算的当前状态。
  *
- * ★带品牌，只能由 createLoopState 产出★ —— 拿到一个 LoopState 就等于
+ * ★带品牌，只能由 createLoopBudget 产出★ —— 拿到一个 LoopBudget 就等于
  * 它的上限已经校验过了，转换函数不必再查一遍。
  * 这就是「让非法状态无法被表示」在 TS 里的落地形态。
  */
-export type LoopState = {
+export type LoopBudget = {
   readonly limits: LoopLimits;
   readonly modelCalls: number;
   readonly toolRuns: number;
@@ -115,15 +129,19 @@ export type LoopState = {
   readonly [brand]: true;
 };
 
-/** 合法的次数：安全整数且至少为 1。见契约③。 */
-function isValidCount(n: number): boolean {
+/**
+ * 合法的次数：安全整数且至少为 1。见契约③。
+ * ★导出给 turn.ts 用★ —— 它判 toolCount 用的是同一条规则，
+ * 抄一份就会有两个地方要同时改对。
+ */
+export function isValidCount(n: number): boolean {
   return Number.isSafeInteger(n) && n >= 1;
 }
 
-/** 校验上限并构造初始状态。这是拿到 LoopState 的唯一入口。 */
-export function createLoopState(
+/** 校验上限并构造初始状态。这是拿到 LoopBudget 的唯一入口。 */
+export function createLoopBudget(
   limits: LoopLimits,
-): Result<LoopState, InvalidLimit> {
+): Result<LoopBudget, InvalidLimit> {
   if (!isValidCount(limits.maxModelCalls)) {
     return err({
       kind: "invalid-limit",
@@ -157,17 +175,17 @@ export function createLoopState(
     modelCalls: 0,
     toolRuns: 0,
     inputBytes: 0,
-  } as LoopState);
+  } as LoopBudget);
 }
 
 /** 记一次模型调用。到上限则拒绝，状态不变。 */
 export function recordModelCall(
-  state: LoopState,
-): Result<LoopState, LimitReached> {
+  state: LoopBudget,
+): Result<LoopBudget, InsufficientBudget> {
   const { maxModelCalls } = state.limits;
   if (state.modelCalls >= maxModelCalls) {
     return err({
-      kind: "limit-reached",
+      kind: "insufficient-budget",
       limit: "model-calls",
       used: state.modelCalls,
       max: maxModelCalls,
@@ -178,19 +196,19 @@ export function recordModelCall(
 
 /**
  * 记一批工具执行。count 是这一次响应里要并行跑的工具个数。
- * 额度不够时★一个都不跑★（契约⑥）。
+ * 预算不够时★一个都不跑★（契约⑥）。
  */
 export function recordToolRuns(
-  state: LoopState,
+  state: LoopBudget,
   count: number,
-): Result<LoopState, LimitReached | InvalidCount> {
+): Result<LoopBudget, InsufficientBudget | InvalidCount> {
   if (!isValidCount(count)) {
     return err({ kind: "invalid-count", value: count });
   }
   const { maxToolRuns } = state.limits;
   if (state.toolRuns + count > maxToolRuns) {
     return err({
-      kind: "limit-reached",
+      kind: "insufficient-budget",
       limit: "tool-runs",
       used: state.toolRuns,
       max: maxToolRuns,
@@ -203,19 +221,19 @@ export function recordToolRuns(
  * 记一段输入的字节数。★只判总和★ —— 单个文本的上限是无状态规则，
  * 由 input.ts 在测量的时候就地判掉，不必进到状态里。
  *
- * 和 recordToolRuns 一样是原子的：额度不够就一个字节都不记（契约⑥）。
+ * 和 recordToolRuns 一样是原子的：预算不够就一个字节都不记（契约⑥）。
  */
 export function recordInputBytes(
-  state: LoopState,
+  state: LoopBudget,
   bytes: number,
-): Result<LoopState, LimitReached | InvalidCount> {
+): Result<LoopBudget, InsufficientBudget | InvalidCount> {
   if (!Number.isSafeInteger(bytes) || bytes < 0) {
     return err({ kind: "invalid-count", value: bytes });
   }
   const { maxInputBytesTotal } = state.limits;
   if (state.inputBytes + bytes > maxInputBytesTotal) {
     return err({
-      kind: "limit-reached",
+      kind: "insufficient-budget",
       limit: "input-bytes-total",
       used: state.inputBytes,
       max: maxInputBytesTotal,

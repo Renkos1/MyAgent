@@ -1,9 +1,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import type { LoopState } from "../../src/domain/loop.ts";
+import type { LoopBudget } from "../../src/domain/loop.ts";
 import {
-  createLoopState,
+  createLoopBudget,
   recordInputBytes,
   recordModelCall,
   recordToolRuns,
@@ -32,14 +32,14 @@ const anyLimits = fc.record({
 });
 type Limits = ReturnType<(typeof anyLimits)["generate"]>["value"];
 
-function freshState(limits: Limits): LoopState {
-  const r = createLoopState(limits);
+function freshState(limits: Limits): LoopBudget {
+  const r = createLoopBudget(limits);
   if (!r.ok) throw new Error(`脚手架：生成器造出了非法上限 ${r.error.limit}`);
   return r.value;
 }
 
 /** 执行一步。★失败时返回原状态★ —— 转换函数失败不消耗任何额度。 */
-function apply(state: LoopState, o: Op): LoopState {
+function apply(state: LoopBudget, o: Op): LoopBudget {
   const r =
     o.t === "model"
       ? recordModelCall(state)
@@ -50,7 +50,7 @@ function apply(state: LoopState, o: Op): LoopState {
 }
 
 /** 执行一串操作，失败的跳过。返回每一步的状态（含初始态）。 */
-function trace(state: LoopState, ops: readonly Op[]): LoopState[] {
+function trace(state: LoopBudget, ops: readonly Op[]): LoopBudget[] {
   const seen = [state];
   let cur = state;
   for (const o of ops) {
@@ -145,7 +145,7 @@ describe("★结合律：额度够时成立，不够时不成立★", () => {
   const nTools = fc.integer({ min: 1, max: 6 });
 
   /** 逐个记 n 次，每次一个。 */
-  function oneByOne(state: LoopState, n: number): LoopState {
+  function oneByOne(state: LoopBudget, n: number): LoopBudget {
     let cur = state;
     for (let i = 0; i < n; i++) {
       const r = recordToolRuns(cur, 1);
