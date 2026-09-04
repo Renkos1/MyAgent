@@ -1,9 +1,10 @@
-import type { LimitName, LoopState } from "./loop.ts";
+import type { InsufficientBudget, InvalidCount, LoopBudget } from "./loop.ts";
+import { isValidCount } from "./loop.ts";
 
 /**
  * 一轮结束之后：该继续，还是该停？停的话是成功还是失败？
  *
- * ★纯判定★：读 LoopState 但★不返回新状态★，也不碰模型、不碰 IO。
+ * ★纯判定★：读 LoopBudget 但★不返回新状态★，也不碰模型、不碰 IO。
  *
  * ── 为什么它和 1.2 / 1.3 是两类东西 ──────────────────────────────
  *
@@ -36,8 +37,8 @@ import type { LimitName, LoopState } from "./loop.ts";
  *      1. completed          → done，★即使预算刚好用光★
  *      2. truncated/refused/empty → aborted
  *      3. tool-requested     → 先查 toolCount 合法性
- *                              再查★工具额度★（这一轮马上要花的）
- *                              再查★模型额度★（下一轮才要花的）
+ *                              再查★工具预算★（这一轮马上要花的）
+ *                              再查★模型预算★（下一轮才要花的）
  *                              都够 → continue
  *      判据：★哪个描述了用户实际拿到的东西。★
  *            模型答完了，用户就是拿到了答案 —— 这时报"达到轮次上限"是误导。
@@ -46,7 +47,7 @@ import type { LimitName, LoopState } from "./loop.ts";
  *
  * ④ 「输出被截断」算哪一类？
  *      ★aborted★。半句话不是答案，交给用户等于骗他。
- *      对照 1.3 契约⑤（截断成空 = 非法）：同一类问题、同一个答案，
+ *      对照 size.ts 契约⑤（截断成空 = 非法）：同一类问题、同一个答案，
  *      但理由不同 —— 那里是"骗调用方"，这里是"骗用户"。
  *      代价：那半句话拿不到。★但没丢信息★ ——
  *            outcome 本来就在调用方手里，要展示自己取。
@@ -84,19 +85,18 @@ export type TurnOutcome =
   /** 既没有内容也没有工具请求。 */
   | { readonly kind: "empty" };
 
-/** 为什么被迫停下。全部都是失败。 */
+/**
+ * 为什么被迫停下。全部都是失败。
+ *
+ * ★前两支直接复用 loop.ts 的类型★，不再抄一份同形状的：
+ * 抄出来的两份会各自漂移，而它们本来就是同一个概念（词表 docs/glossary.md）。
+ */
 export type AbortReason =
-  | {
-      readonly kind: "budget-exhausted";
-      readonly limit: LimitName;
-      readonly used: number;
-      readonly max: number;
-    }
+  | InsufficientBudget
   | { readonly kind: "truncated" }
   | { readonly kind: "refused" }
   | { readonly kind: "empty-response" }
-  /** 说要调工具，个数却不是一个正整数 —— 适配器出了问题。 */
-  | { readonly kind: "invalid-tool-count"; readonly value: number };
+  | InvalidCount;
 
 /** 三类出口。★成功和失败是两个 kind，混不了。★ */
 export type Decision =
@@ -114,7 +114,7 @@ function assertNever(x: never): never {
 }
 /* v8 ignore stop */
 
-export function decide(state: LoopState, outcome: TurnOutcome): Decision {
+export function decide(state: LoopBudget, outcome: TurnOutcome): Decision {
   switch (outcome.kind) {
     // 契约③-1：完成信号最优先，★即使预算刚好用光★
     case "completed":
@@ -131,20 +131,21 @@ export function decide(state: LoopState, outcome: TurnOutcome): Decision {
     // 契约③-3：要调工具时才查预算
     case "tool-requested": {
       const { toolCount } = outcome;
-      if (!Number.isSafeInteger(toolCount) || toolCount < 1) {
+      // 和 loop.ts 的 recordToolRuns 用同一条规则，见契约③
+      if (!isValidCount(toolCount)) {
         return {
           kind: "aborted",
-          reason: { kind: "invalid-tool-count", value: toolCount },
+          reason: { kind: "invalid-count", value: toolCount },
         };
       }
 
-      // 先查工具额度：这一轮马上要花的。原子性同 recordToolRuns —— 不够就一个不跑
+      // 先查工具预算：这一轮马上要花的。原子性同 recordToolRuns —— 不够就一个不跑
       const { maxToolRuns, maxModelCalls } = state.limits;
       if (state.toolRuns + toolCount > maxToolRuns) {
         return {
           kind: "aborted",
           reason: {
-            kind: "budget-exhausted",
+            kind: "insufficient-budget",
             limit: "tool-runs",
             used: state.toolRuns,
             max: maxToolRuns,
@@ -152,12 +153,12 @@ export function decide(state: LoopState, outcome: TurnOutcome): Decision {
         };
       }
 
-      // 再查模型额度：跑完工具还要再问一次模型，问不起就★别跑那些工具★
+      // 再查模型预算：跑完工具还要再问一次模型，问不起就★别跑那些工具★
       if (state.modelCalls >= maxModelCalls) {
         return {
           kind: "aborted",
           reason: {
-            kind: "budget-exhausted",
+            kind: "insufficient-budget",
             limit: "model-calls",
             used: state.modelCalls,
             max: maxModelCalls,

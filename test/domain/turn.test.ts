@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { LoopState } from "../../src/domain/loop.ts";
+import type { LoopBudget } from "../../src/domain/loop.ts";
 import {
-  createLoopState,
+  createLoopBudget,
   recordModelCall,
   recordToolRuns,
 } from "../../src/domain/loop.ts";
@@ -13,7 +13,7 @@ const BYTES = { maxInputBytesPerItem: 4096, maxInputBytesTotal: 65536 };
 
 /**
  * 造一个「已经用掉一些额度」的状态。
- * ★只能通过真实的转换函数推进★ —— 品牌类型不许直接拼 LoopState，
+ * ★只能通过真实的转换函数推进★ —— 品牌类型不许直接拼 LoopBudget，
  * 这反过来保证脚手架造出来的状态是循环里真会出现的形状。
  */
 function stateWith(opts: {
@@ -21,8 +21,8 @@ function stateWith(opts: {
   maxToolRuns: number;
   modelCalls?: number;
   toolRuns?: number;
-}): LoopState {
-  const created = createLoopState({
+}): LoopBudget {
+  const created = createLoopBudget({
     maxModelCalls: opts.maxModelCalls,
     maxToolRuns: opts.maxToolRuns,
     ...BYTES,
@@ -110,7 +110,7 @@ describe("decide", () => {
       ).toEqual({
         kind: "aborted",
         reason: {
-          kind: "budget-exhausted",
+          kind: "insufficient-budget",
           limit: "model-calls",
           used: 2,
           max: 2,
@@ -124,7 +124,7 @@ describe("decide", () => {
       ).toEqual({
         kind: "aborted",
         reason: {
-          kind: "budget-exhausted",
+          kind: "insufficient-budget",
           limit: "tool-runs",
           used: 3,
           max: 3,
@@ -143,7 +143,7 @@ describe("decide", () => {
       expect(decide(both, { kind: "tool-requested", toolCount: 1 })).toEqual({
         kind: "aborted",
         reason: {
-          kind: "budget-exhausted",
+          kind: "insufficient-budget",
           limit: "tool-runs",
           used: 3,
           max: 3,
@@ -251,7 +251,7 @@ describe("decide", () => {
         expect(decide(state, { kind: "tool-requested", toolCount })).toEqual({
           kind: "aborted",
           reason: {
-            kind: "budget-exhausted",
+            kind: "insufficient-budget",
             limit: "tool-runs",
             used,
             max: maxToolRuns,
@@ -275,11 +275,11 @@ describe("decide", () => {
     ])("$why｜toolCount=$toolCount", ({ toolCount }) => {
       expect(decide(ROOMY, { kind: "tool-requested", toolCount })).toEqual({
         kind: "aborted",
-        reason: { kind: "invalid-tool-count", value: toolCount },
+        reason: { kind: "invalid-count", value: toolCount },
       });
     });
 
-    it("★非法个数比额度检查更早★：额度也不够时仍报 invalid-tool-count", () => {
+    it("★非法个数比额度检查更早★：额度也不够时仍报 invalid-count", () => {
       const noRoom = stateWith({
         maxModelCalls: 1,
         maxToolRuns: 1,
@@ -288,7 +288,7 @@ describe("decide", () => {
       });
       expect(decide(noRoom, { kind: "tool-requested", toolCount: 0 })).toEqual({
         kind: "aborted",
-        reason: { kind: "invalid-tool-count", value: 0 },
+        reason: { kind: "invalid-count", value: 0 },
       });
     });
   });

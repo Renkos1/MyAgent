@@ -1,4 +1,4 @@
-import type { InvalidCount, LimitReached, LoopState } from "./loop.ts";
+import type { InvalidCount, InsufficientBudget, LoopBudget } from "./loop.ts";
 import { recordInputBytes } from "./loop.ts";
 import type { Result } from "./result.ts";
 import { err, ok } from "./result.ts";
@@ -8,7 +8,7 @@ import { measure, truncateToBytes } from "./size.ts";
  * 把若干段文本接纳进这一轮，并扣掉输入预算。
  *
  * ★这一层是组合，不是新规则★：
- *   size.ts   量文本、切文本 —— 不认识 LoopState
+ *   size.ts   量文本、切文本 —— 不认识 LoopBudget
  *   loop.ts   扣预算        —— 不认识"文本"
  *   input.ts  ★只有这里同时 import 两边★
  *
@@ -77,16 +77,16 @@ export type InputError =
    * 要么在这里 throw（在返回 Result 的领域层里制造第二种失败风格）。
    * ★两个都比多一个 case 贵。★
    */
-  | LimitReached
+  | InsufficientBudget
   | InvalidCount;
 
 export type Admitted = {
-  readonly state: LoopState;
+  readonly state: LoopBudget;
   readonly items: readonly InputItem[];
 };
 
 export function admitInput(
-  state: LoopState,
+  state: LoopBudget,
   texts: readonly string[],
   mode: LimitMode,
 ): Result<Admitted, InputError> {
