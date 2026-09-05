@@ -15,3 +15,6 @@ coverage/
 !.vscode/launch.json
 !.vscode/*.code-snippets
 reports/
+
+# 变异测试：沙箱是源码的临时副本，报告是产物
+.stryker-tmp/

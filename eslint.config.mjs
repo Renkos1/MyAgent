@@ -46,6 +46,9 @@ export default defineConfig([
   },
 
   {
-    ignores: ["dist/**", "coverage/**"],
+    // TRAP: .stryker-tmp 是 Stryker 复制的整份源码副本。不挡住的话
+    //       pnpm lint 会去 lint 那些副本 —— 实测 123 个 error，
+    //       而且报的是 tsconfigRootDir 之类看不懂的错。
+    ignores: ["dist/**", "coverage/**", ".stryker-tmp/**", "reports/**"],
   },
 ]);
