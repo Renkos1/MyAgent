@@ -8,11 +8,12 @@
  *     pnpm dev
  */
 import { collect, run } from "./app/runTurn.ts";
-import type { RunConfig } from "./app/runTurn.ts";
+import { createRunConfig } from "./app/config.ts";
+import type { RunConfig } from "./app/config.ts";
 import { FakeLlm } from "./infra/fake/llm.ts";
 import { FakeTools } from "./infra/fake/tools.ts";
 
-const cfg: RunConfig = {
+const raw: RunConfig = {
   limits: {
     maxModelCalls: 4,
     maxToolRuns: 4,
@@ -45,6 +46,14 @@ const tools = new FakeTools({
   t2: { kind: "ok", content: "# 文档入口" },
 });
 
+// NOTE: composition root 是唯一把裸配置变成 ValidRunConfig 的地方
+const built = createRunConfig(raw);
+if (!built.ok) {
+  console.error("配置非法：", built.error.kind);
+  process.exit(1);
+}
+const cfg = built.value;
+
 const { events, result } = await collect(
   run(
     { llm, tools, sleep: () => Promise.resolve() },
@@ -60,8 +69,8 @@ if (result.kind === "done") console.log("答案  ", result.text);
 if (result.kind !== "setup") {
   console.log(
     "预算  ",
-    `模型 ${String(result.budget.modelCalls)}/${String(cfg.limits.maxModelCalls)}`,
-    `工具 ${String(result.budget.toolRuns)}/${String(cfg.limits.maxToolRuns)}`,
+    `模型 ${String(result.budget.modelCalls)}/${String(raw.limits.maxModelCalls)}`,
+    `工具 ${String(result.budget.toolRuns)}/${String(raw.limits.maxToolRuns)}`,
     `字节 ${String(result.budget.inputBytes)}`,
   );
 }
@@ -69,5 +78,5 @@ console.log(
   "并发峰值",
   tools.peakConcurrency,
   "／上限",
-  cfg.maxConcurrentTools,
+  raw.maxConcurrentTools,
 );

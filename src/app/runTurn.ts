@@ -62,19 +62,11 @@
  *        failed   ★端口失败★（问不到模型）—— 外界的问题
  *      三个都带 budget：阶段 8 的成本核算要它。
  */
-import type {
-  InsufficientBudget,
-  LoopBudget,
-  LoopLimits,
-} from "../domain/loop.ts";
-import {
-  createLoopBudget,
-  recordModelCall,
-  recordToolRuns,
-} from "../domain/loop.ts";
+import type { InsufficientBudget, LoopBudget } from "../domain/loop.ts";
+import { recordModelCall, recordToolRuns } from "../domain/loop.ts";
 import { admitInput } from "../domain/input.ts";
-import type { InputError, LimitMode } from "../domain/input.ts";
-import type { InvalidLimit } from "../domain/loop.ts";
+import type { InputError } from "../domain/input.ts";
+import type { ValidRunConfig } from "./config.ts";
 import type { AbortReason } from "../domain/turn.ts";
 import { decide } from "../domain/turn.ts";
 import type {
@@ -88,18 +80,6 @@ import type {
   TurnInput,
 } from "./ports.ts";
 import { toOutcome } from "./ports.ts";
-
-export type RunConfig = {
-  readonly limits: LoopLimits;
-  /** 契约⑤。★这个数值是人定的★，不是我猜的默认值。 */
-  readonly maxConcurrentTools: number;
-  /** 契约：只对 unavailable 重试。★次数和基数是人定的★。 */
-  readonly maxRetries: number;
-  readonly retryBaseMs: number;
-  /** 契约⑥：两个 mode 故意不同。 */
-  readonly userInputMode: LimitMode;
-  readonly toolResultMode: LimitMode;
-};
 
 export type RunEvent =
   | { readonly kind: "turn-started"; readonly turn: number }
@@ -133,7 +113,7 @@ export type RunResult =
       readonly error: LlmError;
       readonly budget: LoopBudget;
     }
-  | { readonly kind: "setup"; readonly error: InvalidLimit | InputError };
+  | { readonly kind: "setup"; readonly error: InputError };
 
 export type Deps = {
   readonly llm: LlmPort;
@@ -150,7 +130,7 @@ function refundable(e: LlmError): boolean {
 /** 契约：只对 unavailable 重试；retryAfterMs 有值就听它的。 */
 async function* sendWithRetry(
   deps: Deps,
-  cfg: RunConfig,
+  cfg: ValidRunConfig,
   session: LlmSession,
   delta: Parameters<LlmSession["send"]>[0],
   opts: CallOptions | undefined,
@@ -170,7 +150,7 @@ async function* sendWithRetry(
 /** 契约⑤：并行但限流。★按请求顺序返回★，不按完成顺序。 */
 async function runTools(
   deps: Deps,
-  cfg: RunConfig,
+  cfg: ValidRunConfig,
   calls: readonly ToolCall[],
   opts: CallOptions | undefined,
 ): Promise<readonly ToolOutcome[]> {
@@ -210,16 +190,14 @@ function renderOutcome(outcome: ToolOutcome): string {
 
 export async function* run(
   deps: Deps,
-  cfg: RunConfig,
+  cfg: ValidRunConfig,
   systemPrompt: string,
   question: string,
   opts?: CallOptions,
 ): AsyncGenerator<RunEvent, RunResult> {
-  const created = createLoopBudget(cfg.limits);
-  if (!created.ok) return { kind: "setup", error: created.error };
-
-  // 契约⑥：用户输入走 reject
-  const admitted = admitInput(created.value, [question], cfg.userInputMode);
+  // NOTE: 不再有「上限非法」这条分支 —— cfg 带着校验过的 initialBudget，
+  //       非法配置在 createRunConfig 那一层就被挡住了。
+  const admitted = admitInput(cfg.initialBudget, [question], cfg.userInputMode);
   if (!admitted.ok) return { kind: "setup", error: admitted.error };
 
   let budget = admitted.value.state;

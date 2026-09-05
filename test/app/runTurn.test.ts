@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { collect, run } from "../../src/app/runTurn.ts";
-import type { RunConfig } from "../../src/app/runTurn.ts";
+import type { RunConfig, ValidRunConfig } from "../../src/app/config.ts";
+import { createRunConfig } from "../../src/app/config.ts";
 import { FakeLlm } from "../../src/infra/fake/llm.ts";
 import { FakeTools } from "../../src/infra/fake/tools.ts";
 
@@ -10,7 +11,14 @@ const Q = "docs 下有什么？";
 const nap = (): Promise<void> => Promise.resolve();
 
 /** 基线配置。★每个用例只改自己要考的那一两项★，其余保持宽松。 */
-function cfgWith(over: Partial<RunConfig> = {}): RunConfig {
+function cfgWith(over: Partial<RunConfig> = {}): ValidRunConfig {
+  const built = createRunConfig(raw(over));
+  // NOTE: 脚手架自己的前置条件 —— 用例参数写错了要当场炸，不要悄悄跑下去
+  if (!built.ok) throw new Error(`脚手架：配置非法 ${built.error.kind}`);
+  return built.value;
+}
+
+function raw(over: Partial<RunConfig> = {}): RunConfig {
   return {
     limits: {
       maxModelCalls: 9,
@@ -327,24 +335,96 @@ describe("runTurn 契约⑦：四个顶层 kind 各自出现在该出现的地�
     });
   });
 
-  it("上限非法 → setup，连模型都不问", async () => {
+  it("用户输入超长 → setup（现在 setup 只剩这一种来源）", async () => {
     const llm = new FakeLlm([]);
     const { result } = await collect(
       run(
         { llm, tools: new FakeTools({}), sleep: nap },
         cfgWith({
           limits: {
-            maxModelCalls: 0,
+            maxModelCalls: 9,
             maxToolRuns: 9,
-            maxInputBytesPerItem: 4096,
+            maxInputBytesPerItem: 3,
             maxInputBytesTotal: 65536,
           },
         }),
         SYS,
-        Q,
+        "超过三个字节",
       ),
     );
-    expect(result.kind).toBe("setup");
+    expect(result).toMatchObject({
+      kind: "setup",
+      error: { kind: "item-too-large" },
+    });
     expect(llm.calls).toBe(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// NOTE: 「上限非法 → run 返回 setup」这条测试★写不出来了★ ——
+//       ValidRunConfig 让非法配置到不了 run 的门口。断言跟着规则搬到这一层。
+describe("createRunConfig：非法配置在这里就被挡住", () => {
+  const okLimits = {
+    maxModelCalls: 9,
+    maxToolRuns: 9,
+    maxInputBytesPerItem: 4096,
+    maxInputBytesTotal: 65536,
+  };
+  const base: RunConfig = {
+    limits: okLimits,
+    maxConcurrentTools: 2,
+    maxRetries: 2,
+    retryBaseMs: 1,
+    userInputMode: "reject",
+    toolResultMode: "truncate",
+  };
+
+  it.each<{ why: string; over: Partial<RunConfig>; kind: string }>([
+    {
+      why: "并发 0 —— 「一个都不并发」是错误不是配置",
+      over: { maxConcurrentTools: 0 },
+      kind: "invalid-concurrency",
+    },
+    {
+      why: "并发是负数",
+      over: { maxConcurrentTools: -1 },
+      kind: "invalid-concurrency",
+    },
+    {
+      why: "并发是小数",
+      over: { maxConcurrentTools: 1.5 },
+      kind: "invalid-concurrency",
+    },
+    {
+      why: "并发是 NaN",
+      over: { maxConcurrentTools: NaN },
+      kind: "invalid-concurrency",
+    },
+    {
+      why: "重试次数是负数",
+      over: { maxRetries: -1 },
+      kind: "invalid-retries",
+    },
+    {
+      why: "退避基数是 Infinity",
+      over: { retryBaseMs: Infinity },
+      kind: "invalid-backoff",
+    },
+    {
+      why: "上限非法（模型额度 0）",
+      over: { limits: { ...okLimits, maxModelCalls: 0 } },
+      kind: "invalid-limit",
+    },
+  ])("$why", ({ over, kind }) => {
+    const got = createRunConfig({ ...base, ...over });
+    expect(got).toMatchObject({ ok: false, error: { kind } });
+  });
+
+  it.each<{ why: string; over: Partial<RunConfig> }>([
+    { why: "并发 1 —— 串行是合法配置", over: { maxConcurrentTools: 1 } },
+    { why: "重试 0 —— 不重试是合法选择", over: { maxRetries: 0 } },
+    { why: "退避 0 —— 测试里把等待压成 0", over: { retryBaseMs: 0 } },
+  ])("$why → 通过", ({ over }) => {
+    expect(createRunConfig({ ...base, ...over }).ok).toBe(true);
   });
 });
