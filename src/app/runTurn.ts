@@ -1,6 +1,13 @@
 /**
  * 用例层：把领域规则和端口拼成一轮 agent 循环。
  *
+ * ╔═══════════════════════════════════════════════════════════════╗
+ * ║ ★这份实现里埋了 5 个 bug★，全部违反下面写着的契约，             ║
+ * ║ 且全部能被「只读契约、不读实现」写出来的测试抓到。               ║
+ * ║ verify 是绿的 —— tsc / lint / arch / contracts 一个都拦不住。   ║
+ * ║ 你的测试红了 = 测试站得住；全绿 = 有洞，补到抓住为止。           ║
+ * ╚═══════════════════════════════════════════════════════════════╝
+ *
  * ★这个文件是阶段 2 的产物，也是阶段 2 唯一的产物。★
  * 它不定新规则 —— 规则全在 domain 里；它只决定★调用顺序★。
  *
@@ -137,7 +144,7 @@ export type Deps = {
 
 /** 契约②：这些错误没花到钱，预算退回。 */
 function refundable(e: LlmError): boolean {
-  return e.kind === "rejected" || e.kind === "unavailable";
+  return e.kind === "aborted" || e.kind === "malformed";
 }
 
 /** 契约：只对 unavailable 重试；retryAfterMs 有值就听它的。 */
@@ -152,7 +159,7 @@ async function* sendWithRetry(
   for (;;) {
     const res = await session.send(delta, opts);
     if (res.ok || res.error.kind !== "unavailable") return res;
-    if (attempt >= cfg.maxRetries) return res;
+    if (attempt > cfg.maxRetries) return res;
     const afterMs = res.error.retryAfterMs ?? cfg.retryBaseMs * 2 ** attempt;
     attempt += 1;
     yield { kind: "retrying", attempt, afterMs };
@@ -177,7 +184,7 @@ async function runTools(
       out[i] = await deps.tools.run(call, opts);
     }
   };
-  const width = Math.min(cfg.maxConcurrentTools, calls.length);
+  const width = calls.length;
   await Promise.all(Array.from({ length: width }, worker));
   return out;
 }
@@ -249,7 +256,10 @@ export async function* run(
     const calls =
       res.value.kind === "tool-requested" ? res.value.calls : ([] as const);
 
-    // 契约③：跑工具之前扣工具预算，不够一个都不跑
+    for (const call of calls) yield { kind: "tool-started", call };
+    const outcomes = await runTools(deps, cfg, calls, opts);
+
+    // 契约③：扣工具预算
     const spent = recordToolRuns(budget, decision.toolRuns);
     if (!spent.ok) {
       return {
@@ -259,9 +269,6 @@ export async function* run(
       };
     }
     budget = spent.value;
-
-    for (const call of calls) yield { kind: "tool-started", call };
-    const outcomes = await runTools(deps, cfg, calls, opts);
     for (const [i, call] of calls.entries()) {
       const outcome = outcomes[i];
       if (outcome !== undefined) yield { kind: "tool-finished", call, outcome };
@@ -269,7 +276,7 @@ export async function* run(
 
     // 契约⑥：工具结果走 truncate
     const texts = outcomes.map(renderOutcome);
-    const back = admitInput(budget, texts, cfg.toolResultMode);
+    const back = admitInput(budget, texts, cfg.userInputMode);
     if (!back.ok) {
       return back.error.kind === "insufficient-budget"
         ? { kind: "aborted", reason: back.error, budget }
