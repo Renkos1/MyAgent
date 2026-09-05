@@ -1,8 +1,8 @@
 /**
- * ★composition root★ —— 全项目唯一 import infra 的地方。
+ * composition root —— IMPORTANT: 全项目唯一 import infra 的地方。
  *
  * 阶段 2 的验收标准就是这个文件能跑出下面的输出：
- * ★用例层在没有网络、没有账单、输出完全确定的情况下跑完了一整轮循环。★
+ * 用例层在没有网络、没有账单、输出完全确定的情况下跑完了一整轮循环。
  * 换成真适配器时，改的只有这里的两个 new。
  *
  *     pnpm dev

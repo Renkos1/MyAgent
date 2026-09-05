@@ -1,5 +1,5 @@
 /**
- * 用例层的配置：把一堆裸数字变成一个★构造不出非法值★的类型。
+ * 用例层的配置：把一堆裸数字变成一个构造不出非法值的类型。
  *
  * @remarks
  * 领域层从阶段 1 起就是「校验」派 —— `createLoopBudget` / `isValidCount` /
@@ -39,7 +39,7 @@ declare const validated: unique symbol;
  *
  * @remarks
  * 除了品牌，它还带着 `initialBudget` —— 这不是为了省一次调用，
- * 而是为了让 `run` 里★不再存在「上限非法」这条分支★。
+ * 而是为了让 `run` 里不再存在「上限非法」这条分支。
  * `LoopBudget` 是不可变的（每个 `record*` 都返回新对象），所以一份零值预算
  * 可以被任意多次 `run` 共用。
  *
@@ -51,7 +51,7 @@ export type ValidRunConfig = RunConfig & {
   readonly [validated]: true;
 };
 
-/** 配置为什么不合法。kind 描述的是★哪个字段错了★，不是错成什么样。 */
+/** 配置为什么不合法。NOTE: kind 描述的是哪个字段错了，不是错成什么样。 */
 export type ConfigError =
   | InvalidLimit
   | { readonly kind: "invalid-concurrency"; readonly value: number }

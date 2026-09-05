@@ -1,67 +1,16 @@
 /**
  * 用例层：把领域规则和端口拼成一轮 agent 循环。
  *
- * ╔═══════════════════════════════════════════════════════════════╗
- * ║ ★这份实现里埋了 5 个 bug★，全部违反下面写着的契约，             ║
- * ║ 且全部能被「只读契约、不读实现」写出来的测试抓到。               ║
- * ║ verify 是绿的 —— tsc / lint / arch / contracts 一个都拦不住。   ║
- * ║ 你的测试红了 = 测试站得住；全绿 = 有洞，补到抓住为止。           ║
- * ╚═══════════════════════════════════════════════════════════════╝
+ * @remarks
+ * IMPORTANT: 这个文件不定新规则 —— 规则全在 domain 里，它只决定**调用顺序**。
  *
- * ★这个文件是阶段 2 的产物，也是阶段 2 唯一的产物。★
- * 它不定新规则 —— 规则全在 domain 里；它只决定★调用顺序★。
+ * 形态是 async generator：中间事件 yield，最终结果 return。
+ * NOTE: `for await` 拿不到 return 值（那是 AsyncGenerator 的第二个类型参数），
+ * 调用方要么手动 `next()` 到 done，要么用 {@link collect}。
  *
- * ── 契约 ────────────────────────────────────────────────────────
- *
- * ① 函数的形状？
- *      ★async generator★：中间事件 yield，最终结果 return。
- *      理由：阶段 6 的 SSE、阶段 8 的成本日志、阶段 3 的「第 2 轮调了什么」
- *            要的都是同一样东西 —— ★看得见中间过程★。
- *      ⚠ ★for await 拿不到 return 值★（那是 AsyncGenerator 的第二个类型参数）。
- *        调用方要么手动 next() 直到 done，要么用下面的 collect 助手。
- *      代价：提前 break 会触发 generator 的 return()，清理要写在 finally 里。
- *
- * ② 模型预算什么时候扣？
- *      ★send 之前扣，端口失败且「没花钱」时退回★。
- *      哪些算没花钱 —— 判据是★供应商那边有没有产生 token★：
- *        rejected   401/400，请求没被受理           → ★退★
- *        unavailable 429/503/连不上，没进到生成      → ★退★
- *        aborted    我们自己叫停，模型已经在生成了   → 不退
- *        malformed  模型答了，只是我们读不懂         → 不退
- *      ⚠ unavailable 里混着「连接超时」和「生成到一半断线」，
- *        后者其实花了钱。★阶段 4 接真模型时要用 provider 后台的用量对账。★
- *
- * ③ 工具预算什么时候扣？
- *      decide 返回 continue 之后，跑工具之前 —— 由 reserveToolRuns 的许可证保证。
- *      同时确认跑完还问得起模型（见 docs/decisions/0005）。
- *
- * ④ ★两个预算都不够时报哪个？—— 这条和阶段 1 的答案相反，是被②改的。★
- *      阶段 1 的 turn.ts 契约③写的是「近的先查」：工具预算先于模型预算。
- *      但②要求模型预算在★每轮开头★扣（send 之前），
- *      而工具预算只能在 decide 说 continue 之后扣 ——
- *      ★顺序被时间轴钉死了，选不了。★
- *      现在的语义：模型额度先耗尽 → 报 model-calls，连问都问不起。
- *      判据仍是原来那条「哪个描述了用户实际拿到的东西」：
- *      问都没问出去，说「工具跑不完」是错的。
- *      ⚠ ★这条推翻了 turn.test.ts 里「两个额度都不够 → 报 tool-runs」那条断言。★
- *
- * ⑤ 工具怎么跑？
- *      ★并行，但有并发上限 maxConcurrentTools。★
- *      一批里有失败不影响其他 —— 工具失败是数据（见 ports.ts 契约⑨），不是异常。
- *      ⚠ 事件顺序按★请求顺序★发，不按完成顺序，否则日志没法对账。
- *
- * ⑥ 工具结果怎么进上下文？
- *      ★过 admitInput，且和用户输入用不同的 mode★：
- *        用户输入   reject   —— 你自己打的字太长，该当场告诉你
- *        工具结果   truncate —— 文件就是大，截断喂进去好过整轮失败
- *      ⚠ 截断这件事★要告诉模型★，否则它会拿半个文件当全部来回答。
- *
- * ⑦ 返回什么？
- *      ★三个顶层 kind★，对齐 Decision 的形状：
- *        done     模型答完了
- *        aborted  ★领域拒绝★（预算 / 内容不可信）—— 我们的规则挡下来的
- *        failed   ★端口失败★（问不到模型）—— 外界的问题
- *      三个都带 budget：阶段 8 的成本核算要它。
+ * @see docs/decisions/0011-use-case-orchestration.md  七个决定的候选、判据、代价
+ * @see docs/decisions/0005-tool-run-permit.md  为什么扣预算和跑工具的顺序由类型保证
+ * @see docs/decisions/0003-validated-run-config.md  为什么 cfg 是 ValidRunConfig
  */
 import type {
   InsufficientBudget,
@@ -101,7 +50,14 @@ export type RunEvent =
     }
   | { readonly kind: "input-truncated"; readonly index: number };
 
-/** 契约⑦：三个顶层 kind。setup 是连预算都没建起来 —— 配置写错了。 */
+/**
+ * 四个顶层 kind，对齐 Decision 的形状。
+ *
+ * @remarks
+ * IMPORTANT: aborted 是**领域拒绝**（我们的规则挡下来的），
+ * failed 是**端口失败**（外界的问题）—— 调用方的处理不同，所以不能合并。
+ * 三个都带 budget：阶段 8 的成本核算要它。
+ */
 export type RunResult =
   | {
       readonly kind: "done";
@@ -123,16 +79,23 @@ export type RunResult =
 export type Deps = {
   readonly llm: LlmPort;
   readonly tools: ToolPort;
-  /** 注入的等待。★测试里换成立即 resolve★，不然重试测试要真的睡。 */
+  /** 注入的等待。NOTE: 测试里换成立即 resolve，不然重试测试要真的睡。 */
   readonly sleep: (ms: number) => Promise<void>;
 };
 
-/** 契约②：这些错误没花到钱，预算退回。 */
+/**
+ * 这些错误没花到钱，预算退回。
+ *
+ * @remarks
+ * 判据是供应商那边有没有产生 token，见 ADR 0011 §②。
+ * TODO(阶段 4): unavailable 里混着「连接超时」和「生成到一半断线」，
+ * 后者其实花了钱 —— 接真模型时要用 provider 后台的用量对账。
+ */
 function refundable(e: LlmError): boolean {
   return e.kind === "unavailable" || e.kind === "rejected";
 }
 
-/** 契约：只对 unavailable 重试；retryAfterMs 有值就听它的。 */
+/** 只对 unavailable 重试；retryAfterMs 有值就听它的。 */
 async function* sendWithRetry(
   deps: Deps,
   cfg: ValidRunConfig,
@@ -151,7 +114,12 @@ async function* sendWithRetry(
   }
 }
 
-/** 契约⑤：并行但限流。★按请求顺序返回★，不按完成顺序。 */
+/**
+ * 并行但限流。
+ *
+ * @remarks
+ * IMPORTANT: 按请求顺序返回，不按完成顺序 —— 否则日志没法对账。
+ */
 async function runTools(
   deps: Deps,
   cfg: ValidRunConfig,
@@ -179,7 +147,7 @@ async function runTools(
   return out;
 }
 
-/** 契约⑥：把工具结果变成喂回模型的文本。截断要说出来。 */
+/** 把工具结果变成喂回模型的文本。IMPORTANT: 截断要说出来，见 ADR 0011 §⑥。 */
 function renderOutcome(outcome: ToolOutcome): string {
   switch (outcome.kind) {
     case "ok":
@@ -208,9 +176,9 @@ export async function* run(
   if (!admitted.ok) return { kind: "setup", error: admitted.error };
 
   let budget = admitted.value.state;
-  // 契约⑤：历史归用例层所有，端口无状态，每次收全量。
+  // 历史归用例层所有，端口无状态，每次收全量（ADR 0004）。
   //
-  // TRAP: 这里必须★不可变地累加★，不能 push。
+  // TRAP: 这里必须不可变地累加，不能 push。
   //       `readonly TurnInput[]` 只挡「通过这个引用改」，挡不住别名 ——
   //       把一个还会被 push 的数组交出去，接收方存下来的是引用，
   //       你后面每 push 一次，它手里那份"历史快照"就跟着变。
@@ -222,7 +190,7 @@ export async function* run(
     turn += 1;
     yield { kind: "turn-started", turn };
 
-    // 契约②：send 之前扣
+    // send 之前扣（ADR 0011 §②）
     const before = budget;
     const charged = recordModelCall(budget);
     if (!charged.ok) return { kind: "aborted", reason: charged.error, budget };
@@ -235,7 +203,7 @@ export async function* run(
       opts,
     );
     if (!res.ok) {
-      // 契约②：没花钱的退回
+      // 没花钱的退回
       if (refundable(res.error)) budget = before;
       return { kind: "failed", error: res.error, budget };
     }
@@ -253,7 +221,7 @@ export async function* run(
     const calls =
       res.value.kind === "tool-requested" ? res.value.calls : ([] as const);
 
-    // 契约③：扣工具预算 + 确认跑完还问得起模型。
+    // 扣工具预算 + 确认跑完还问得起模型（ADR 0005）。
     // 拿不到许可证就跑不了工具 —— 顺序由类型保证，不靠这行注释。
     const permit = reserveToolRuns(budget, decision.toolRuns);
     if (!permit.ok) {
@@ -273,7 +241,7 @@ export async function* run(
       if (outcome !== undefined) yield { kind: "tool-finished", call, outcome };
     }
 
-    // 契约⑥：工具结果走 truncate
+    // 工具结果走 truncate（ADR 0011 §⑥）
     const texts = outcomes.map(renderOutcome);
     const back = admitInput(budget, texts, cfg.toolResultMode);
     if (!back.ok) {
@@ -303,7 +271,12 @@ export async function* run(
   }
 }
 
-/** 契约①的配套：for await 拿不到 return 值，所以给一个收集助手。 */
+/**
+ * 把 generator 跑到底，同时拿到事件和最终结果。
+ *
+ * @remarks
+ * NOTE: `for await` 只吃第一个类型参数，拿不到 return 值 —— 这个助手就是为它存在的。
+ */
 export async function collect(
   gen: AsyncGenerator<RunEvent, RunResult>,
 ): Promise<{ events: RunEvent[]; result: RunResult }> {
