@@ -18,11 +18,23 @@ module.exports = {
     {
       name: "domain-无出边",
       comment:
-        "领域层是纯的：只许 import 自己人。★包括不许 import node: 内置模块★ —— " +
-        "一旦 import 了 node:fs，它就不再是「拿数据当输入的纯函数」了。",
+        "领域层只许 import 自己人。★第三方包一律不许★ —— " +
+        "领域规则一旦长在别人的 API 上，那个包就换不掉了。",
       severity: "error",
       from: { path: "^src/domain" },
-      to: { pathNot: "^src/domain" },
+      to: { pathNot: "^src/domain", dependencyTypesNot: ["core"] },
+    },
+    {
+      name: "domain-内置只许纯的",
+      comment:
+        "★白名单，不是黑名单★：新增的内置模块默认被挡住，不用追着 Node 更新。\n" +
+        "判据不是「是不是标准库」，是★能不能做 IO / 读环境★ —— 规则的立论要和风险对齐。\n" +
+        "node:path  纯字符串运算（前提：只用 path.posix.*，见 eslint 里的配套规则）\n" +
+        "node:url   URL 解析，同样是纯的\n" +
+        "要加新的，★在这里写一行理由再加★。",
+      severity: "error",
+      from: { path: "^src/domain" },
+      to: { dependencyTypes: ["core"], pathNot: "^(node:)?(path|url)$" },
     },
     {
       name: "app-不许碰-infra",

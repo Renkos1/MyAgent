@@ -19,9 +19,10 @@
     "test:cov": "vitest run --coverage",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
-    "contracts": "node scripts/check-contracts.ts src/domain",
+    "arch": "depcruise src --config .dependency-cruiser.cjs",
+    "contracts": "node scripts/check-contracts.ts src",
     "glossary": "node scripts/check-glossary.ts",
-    "verify": "pnpm check && pnpm lint && pnpm format:check && pnpm contracts && pnpm glossary && pnpm test && pnpm build"
+    "verify": "pnpm check && pnpm lint && pnpm format:check && pnpm arch && pnpm contracts && pnpm glossary && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

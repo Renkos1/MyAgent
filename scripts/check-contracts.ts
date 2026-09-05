@@ -49,10 +49,22 @@ interface Mod {
   readonly refs: Ref[];
 }
 
-function listTs(dir: string): string[] {
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".ts") && statSync(join(dir, f)).isFile())
-    .sort();
+/**
+ * 递归收集 .ts，返回★相对 dir 的路径★（如 "domain/loop.ts"）。
+ *
+ * ⚠ 2026-09 修：原来这里不递归。把 `pnpm contracts src/domain` 改成 `src`
+ *   之后，它只扫到 src/index.ts —— ★门禁悄悄从 6 个文件缩到 1 个，还打勾★。
+ *   改门禁的作用域而不重新红一次，等于关掉了它。
+ */
+function listTs(dir: string, prefix = ""): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir).sort()) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory())
+      out.push(...listTs(full, `${prefix}${name}/`));
+    else if (name.endsWith(".ts")) out.push(`${prefix}${name}`);
+  }
+  return out;
 }
 
 function parse(path: string): Mod {
@@ -98,6 +110,10 @@ const dir = process.argv[2] ?? "src";
 const mods = new Map<string, Mod>(
   listTs(dir).map((f) => [f, parse(join(dir, f))]),
 );
+/** 跨模块引用写的是★裸文件名★（`见 size.ts 契约②`），这里把 basename 映回全路径。 */
+const byBase = new Map<string, string>(
+  [...mods.keys()].map((f) => [f.slice(f.lastIndexOf("/") + 1), f]),
+);
 const problems: string[] = [];
 
 console.log(
@@ -106,7 +122,9 @@ console.log(
 console.log("─".repeat(74));
 
 for (const [file, { decls, refs }] of mods) {
-  const own = refs.filter((r) => r.target === null || r.target === file);
+  /** file 现在是 "domain/turn.ts"，而引用写的是裸 "turn.ts"。 */
+  const base = file.slice(file.lastIndexOf("/") + 1);
+  const own = refs.filter((r) => r.target === null || r.target === base);
   const used = new Set(own.map((r) => r.mark));
   const declared = [...decls.keys()].sort(
     (a, b) => MARKS.indexOf(a) - MARKS.indexOf(b),
@@ -136,8 +154,8 @@ for (const [file, { decls, refs }] of mods) {
   }
 
   // ③ 跨模块引用的目标不存在
-  for (const r of refs.filter((x) => x.target !== null && x.target !== file)) {
-    const target = mods.get(r.target ?? "");
+  for (const r of refs.filter((x) => x.target !== null && x.target !== base)) {
+    const target = mods.get(byBase.get(r.target ?? "") ?? "");
     if (!target)
       problems.push(
         `⛔ 跨模块引用    ${file}:${String(r.line)}  指向不存在的模块 ${r.target ?? ""}`,
