@@ -466,3 +466,49 @@ describe("runTurn 契约⑤：历史归用例层，每次发全量", () => {
     expect(llm.systems).toEqual([SYS, SYS]);
   });
 });
+
+// ══════════════════════════════════════════════════════════════
+// NOTE: 这条保证在阶段 1 由 decide 提供（「问不起就别跑那些工具」），
+//       ❸B 把预算检查搬走时丢了，现在由 reserveToolRuns 的许可证找回来。
+describe("runTurn 契约③：跑完工具还问得起模型，否则★一个都不跑★", () => {
+  it("工具额度充足但模型额度只剩这一次 → 工具一个都不跑", async () => {
+    const llm = new FakeLlm([
+      {
+        ok: true,
+        value: {
+          kind: "tool-requested",
+          calls: [{ name: "list_files", id: "t1", dir: "docs" }],
+        },
+      },
+    ]);
+    const tools = new FakeTools({ t1: { kind: "ok", content: "README.md" } });
+    const { result } = await collect(
+      run(
+        { llm, tools, sleep: nap },
+        cfgWith({
+          limits: {
+            maxModelCalls: 1, // 本轮用掉之后就没了
+            maxToolRuns: 9, // 工具额度充足
+            maxInputBytesPerItem: 4096,
+            maxInputBytesTotal: 65536,
+          },
+        }),
+        SYS,
+        Q,
+      ),
+    );
+
+    // 报的是 model-calls：工具跑不了的原因是「跑完问不起」
+    expect(result).toMatchObject({
+      kind: "aborted",
+      reason: {
+        kind: "insufficient-budget",
+        limit: "model-calls",
+        used: 1,
+        max: 1,
+      },
+    });
+    // 核心断言：★工具一个都没跑，IO 和额度都没浪费★
+    expect(tools.seen).toEqual([]);
+  });
+});

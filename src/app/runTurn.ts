@@ -32,7 +32,8 @@
  *        后者其实花了钱。★阶段 4 接真模型时要用 provider 后台的用量对账。★
  *
  * ③ 工具预算什么时候扣？
- *      decide 返回 continue 之后，★跑工具之前★。原子性由 recordToolRuns 保证。
+ *      decide 返回 continue 之后，跑工具之前 —— 由 reserveToolRuns 的许可证保证。
+ *      同时确认跑完还问得起模型（见 docs/decisions/0005）。
  *
  * ④ ★两个预算都不够时报哪个？—— 这条和阶段 1 的答案相反，是被②改的。★
  *      阶段 1 的 turn.ts 契约③写的是「近的先查」：工具预算先于模型预算。
@@ -62,8 +63,12 @@
  *        failed   ★端口失败★（问不到模型）—— 外界的问题
  *      三个都带 budget：阶段 8 的成本核算要它。
  */
-import type { InsufficientBudget, LoopBudget } from "../domain/loop.ts";
-import { recordModelCall, recordToolRuns } from "../domain/loop.ts";
+import type {
+  InsufficientBudget,
+  LoopBudget,
+  ToolRunPermit,
+} from "../domain/loop.ts";
+import { recordModelCall, reserveToolRuns } from "../domain/loop.ts";
 import { admitInput } from "../domain/input.ts";
 import type { InputError } from "../domain/input.ts";
 import type { ValidRunConfig } from "./config.ts";
@@ -150,6 +155,9 @@ async function* sendWithRetry(
 async function runTools(
   deps: Deps,
   cfg: ValidRunConfig,
+  // IMPORTANT: 这个参数就是门禁 —— 没有许可证 = 没扣过预算 = 编译不过。
+  //            它只需要"存在"，函数体不用它。
+  _permit: ToolRunPermit,
   calls: readonly ToolCall[],
   opts: CallOptions | undefined,
 ): Promise<readonly ToolOutcome[]> {
@@ -245,19 +253,20 @@ export async function* run(
     const calls =
       res.value.kind === "tool-requested" ? res.value.calls : ([] as const);
 
-    // 契约③：扣工具预算
-    const spent = recordToolRuns(budget, decision.toolRuns);
-    if (!spent.ok) {
+    // 契约③：扣工具预算 + 确认跑完还问得起模型。
+    // 拿不到许可证就跑不了工具 —— 顺序由类型保证，不靠这行注释。
+    const permit = reserveToolRuns(budget, decision.toolRuns);
+    if (!permit.ok) {
       return {
         kind: "aborted",
-        reason: spent.error as InsufficientBudget,
+        reason: permit.error as InsufficientBudget,
         budget,
       };
     }
-    budget = spent.value;
+    budget = permit.value.next;
 
     for (const call of calls) yield { kind: "tool-started", call };
-    const outcomes = await runTools(deps, cfg, calls, opts);
+    const outcomes = await runTools(deps, cfg, permit.value, calls, opts);
 
     for (const [i, call] of calls.entries()) {
       const outcome = outcomes[i];

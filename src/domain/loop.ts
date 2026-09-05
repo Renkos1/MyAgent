@@ -241,3 +241,57 @@ export function recordInputBytes(
   }
   return ok({ ...state, inputBytes: state.inputBytes + bytes });
 }
+
+declare const permit: unique symbol;
+
+/**
+ * 跑工具的许可证。
+ *
+ * @remarks
+ * 只能由 {@link reserveToolRuns} 产出，而用例层的 `runTools` 必须收它才肯跑。
+ * 于是「先扣预算，再跑工具」这条顺序★由编译器保证★ ——
+ * 在此之前它只写在一行注释里，而注释会跟着代码一起被搬走（2026-09 真实发生过）。
+ *
+ * `next` 是扣完之后的新预算；`count` 是这张许可证批准跑几个。
+ */
+export type ToolRunPermit = {
+  readonly next: LoopBudget;
+  readonly count: number;
+  readonly [permit]: true;
+};
+
+/**
+ * 扣工具预算，同时确认★跑完之后还问得起模型★。
+ *
+ * @remarks
+ * 阶段 1 的 `decide` 曾经保证过这件事（「问不起就别跑那些工具」），
+ * 但预算检查从 decide 搬走时这条保证丢了 —— 于是出现「工具白跑」：
+ * 花了 IO、花了工具额度，结果没有额度再问模型，没人看那些结果。
+ *
+ * IMPORTANT: 模型额度这里只★探测★不扣。下一轮开头的 `recordModelCall` 才真扣。
+ * 探测复用 {@link recordModelCall} 的实现而不是复制它的判断 ——
+ * 复制出来的两份谓词迟早漂移。
+ *
+ * @param state - 当前预算（本轮的模型调用已经扣过了）
+ * @param count - 这一批要跑几个工具
+ * @returns 许可证，或者第一个不够的额度
+ * @see docs/decisions/0005-tool-run-permit.md
+ */
+export function reserveToolRuns(
+  state: LoopBudget,
+  count: number,
+): Result<ToolRunPermit, InsufficientBudget | InvalidCount> {
+  const spent = recordToolRuns(state, count);
+  if (!spent.ok) return spent;
+
+  // NOTE: 报的是 model-calls —— 「工具跑不了」的原因是「跑完问不起」，
+  //       所以描述用户实际拿不到什么的那个字段是模型额度，不是工具额度。
+  const probe = recordModelCall(spent.value);
+  if (!probe.ok) return err(probe.error);
+
+  // TRAP: 不能写 `[permit]: true` —— `declare const permit` 是★纯类型声明★，
+  //       运行时没有这个绑定，当计算属性键用会 ReferenceError。
+  //       tsc / lint / arch 全绿，★只有真跑测试才炸★（2026-09 实测）。
+  //       品牌只活在类型里，构造时用 as 断言 —— 和 createLoopBudget 一致。
+  return ok({ next: spent.value, count } as ToolRunPermit);
+}
