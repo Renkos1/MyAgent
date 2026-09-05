@@ -144,7 +144,7 @@ export type Deps = {
 
 /** 契约②：这些错误没花到钱，预算退回。 */
 function refundable(e: LlmError): boolean {
-  return e.kind === "aborted" || e.kind === "malformed";
+  return e.kind === "unavailable" || e.kind === "rejected";
 }
 
 /** 契约：只对 unavailable 重试；retryAfterMs 有值就听它的。 */
@@ -159,7 +159,7 @@ async function* sendWithRetry(
   for (;;) {
     const res = await session.send(delta, opts);
     if (res.ok || res.error.kind !== "unavailable") return res;
-    if (attempt > cfg.maxRetries) return res;
+    if (attempt >= cfg.maxRetries) return res;
     const afterMs = res.error.retryAfterMs ?? cfg.retryBaseMs * 2 ** attempt;
     attempt += 1;
     yield { kind: "retrying", attempt, afterMs };
@@ -176,6 +176,10 @@ async function runTools(
 ): Promise<readonly ToolOutcome[]> {
   const out: ToolOutcome[] = new Array<ToolOutcome>(calls.length);
   let next = 0;
+  const concurrency = Math.max(
+    1,
+    Math.min(cfg.maxConcurrentTools, calls.length),
+  );
   const worker = async (): Promise<void> => {
     for (;;) {
       const i = next++;
@@ -184,8 +188,7 @@ async function runTools(
       out[i] = await deps.tools.run(call, opts);
     }
   };
-  const width = calls.length;
-  await Promise.all(Array.from({ length: width }, worker));
+  await Promise.all(Array.from({ length: concurrency }, worker));
   return out;
 }
 
@@ -256,9 +259,6 @@ export async function* run(
     const calls =
       res.value.kind === "tool-requested" ? res.value.calls : ([] as const);
 
-    for (const call of calls) yield { kind: "tool-started", call };
-    const outcomes = await runTools(deps, cfg, calls, opts);
-
     // 契约③：扣工具预算
     const spent = recordToolRuns(budget, decision.toolRuns);
     if (!spent.ok) {
@@ -269,6 +269,10 @@ export async function* run(
       };
     }
     budget = spent.value;
+
+    for (const call of calls) yield { kind: "tool-started", call };
+    const outcomes = await runTools(deps, cfg, calls, opts);
+
     for (const [i, call] of calls.entries()) {
       const outcome = outcomes[i];
       if (outcome !== undefined) yield { kind: "tool-finished", call, outcome };
@@ -276,7 +280,7 @@ export async function* run(
 
     // 契约⑥：工具结果走 truncate
     const texts = outcomes.map(renderOutcome);
-    const back = admitInput(budget, texts, cfg.userInputMode);
+    const back = admitInput(budget, texts, cfg.toolResultMode);
     if (!back.ok) {
       return back.error.kind === "insufficient-budget"
         ? { kind: "aborted", reason: back.error, budget }
