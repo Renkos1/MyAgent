@@ -73,7 +73,7 @@ import type {
   CallOptions,
   LlmError,
   LlmPort,
-  LlmSession,
+  LlmRequest,
   ToolCall,
   ToolOutcome,
   ToolPort,
@@ -131,13 +131,12 @@ function refundable(e: LlmError): boolean {
 async function* sendWithRetry(
   deps: Deps,
   cfg: ValidRunConfig,
-  session: LlmSession,
-  delta: Parameters<LlmSession["send"]>[0],
+  req: LlmRequest,
   opts: CallOptions | undefined,
-): AsyncGenerator<RunEvent, Awaited<ReturnType<LlmSession["send"]>>> {
+): AsyncGenerator<RunEvent, Awaited<ReturnType<LlmPort["send"]>>> {
   let attempt = 0;
   for (;;) {
-    const res = await session.send(delta, opts);
+    const res = await deps.llm.send(req, opts);
     if (res.ok || res.error.kind !== "unavailable") return res;
     if (attempt >= cfg.maxRetries) return res;
     const afterMs = res.error.retryAfterMs ?? cfg.retryBaseMs * 2 ** attempt;
@@ -201,10 +200,14 @@ export async function* run(
   if (!admitted.ok) return { kind: "setup", error: admitted.error };
 
   let budget = admitted.value.state;
-  const session = deps.llm.startSession(systemPrompt);
-  let delta: Parameters<LlmSession["send"]>[0] = [
-    { role: "user", text: question },
-  ];
+  // 契约⑤：历史归用例层所有，端口无状态，每次收全量。
+  //
+  // TRAP: 这里必须★不可变地累加★，不能 push。
+  //       `readonly TurnInput[]` 只挡「通过这个引用改」，挡不住别名 ——
+  //       把一个还会被 push 的数组交出去，接收方存下来的是引用，
+  //       你后面每 push 一次，它手里那份"历史快照"就跟着变。
+  //       2026-09 实测：FakeLlm.sent[0] 里出现了第 2 轮才产生的工具结果。
+  let history: readonly TurnInput[] = [{ role: "user", text: question }];
   let turn = 0;
 
   for (;;) {
@@ -217,7 +220,12 @@ export async function* run(
     if (!charged.ok) return { kind: "aborted", reason: charged.error, budget };
     budget = charged.value;
 
-    const res = yield* sendWithRetry(deps, cfg, session, delta, opts);
+    const res = yield* sendWithRetry(
+      deps,
+      cfg,
+      { system: systemPrompt, history },
+      opts,
+    );
     if (!res.ok) {
       // 契约②：没花钱的退回
       if (refundable(res.error)) budget = before;
@@ -266,22 +274,23 @@ export async function* run(
     }
     budget = back.value.state;
 
-    const nextDelta: TurnInput[] = [];
     for (const [i, item] of back.value.items.entries()) {
       if (item.kind === "truncated")
         yield { kind: "input-truncated", index: i };
       const call = calls[i];
       if (call === undefined) continue;
-      nextDelta.push({
-        role: "tool-result",
-        id: call.id,
-        outcome:
-          item.kind === "truncated"
-            ? { kind: "ok", content: `${item.text}\n[已截断]` }
-            : { kind: "ok", content: item.text },
-      });
+      history = [
+        ...history,
+        {
+          role: "tool-result",
+          id: call.id,
+          outcome:
+            item.kind === "truncated"
+              ? { kind: "ok", content: `${item.text}\n[已截断]` }
+              : { kind: "ok", content: item.text },
+        },
+      ];
     }
-    delta = nextDelta;
   }
 }
 

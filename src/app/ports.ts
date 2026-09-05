@@ -36,17 +36,9 @@
  *        单独一个 kind，因为它意味着★我们的代码要改★，不是等一下再试。
  *
  * ⑤ 历史谁维护？
- *      ★端口收「这一轮的增量」★。
- *      推论（★这一条是被③选出来的，不是自由选的★）：provider 的 HTTP API
- *      是无状态的，每次都要发全量历史 —— 收增量就意味着★累加的活在适配器里★。
- *      所以端口★有状态★，而有状态的东西不能藏：
- *      开一个 LlmSession 类型，把「这是一次对话」写在名字上。
- *      代价：· 每轮对话要 new 一个 session，composition root 要管生命周期
- *            · 「回退一轮重来」变难 —— 历史在适配器肚子里
- *            · 一个 session 不能并发用（阶段 6 接 HTTP 时会踩到）
- *      ⚠ 这里★不能用圈号当列表符★：换行后圈号落到行首，
- *        会被 check-contracts 当成一条新的契约声明（本文件真踩过）。
- *      ★重新考虑的信号★：需要「编辑上一条消息重发」或「分支对话」时。
+ *      ★用例层拥有全部历史★，端口无状态，每次收全量。
+ *      2026-09 改：原来是「端口收增量」，推论出端口必须有状态（LlmSession）。
+ *      详见 docs/decisions/0004-history-ownership.md。
  *
  * ⑥ 流式和非流式怎么共存？
  *      ★两个方法并存★：send 返回 Promise，stream 返回 AsyncIterable。
@@ -125,25 +117,7 @@ export type StreamChunk =
   | { readonly kind: "text"; readonly delta: string }
   | { readonly kind: "end"; readonly response: LlmResponse };
 
-/**
- * ★一次对话★。契约⑤：端口收增量，所以历史累加在适配器里 —— 它有状态。
- * ⚠ 一个 session 不能并发用。
- */
-export interface LlmSession {
-  /** 契约③：Result 的错误分支是「没问到模型」，不是「模型说了坏消息」。 */
-  send(
-    delta: readonly TurnInput[],
-    opts?: CallOptions,
-  ): Promise<Result<LlmResponse, LlmError>>;
-
-  /** 契约⑥：流式。错误同样走 Result，在最后一块之前可能提前结束。 */
-  stream(
-    delta: readonly TurnInput[],
-    opts?: CallOptions,
-  ): AsyncIterable<Result<StreamChunk, LlmError>>;
-}
-
-/** 喂给模型的增量。契约⑤：只有这一轮新增的东西。 */
+/** 对话里的一条。用例层攒着它们，每次把全部发出去。 */
 export type TurnInput =
   | { readonly role: "user"; readonly text: string }
   | {
@@ -152,9 +126,41 @@ export type TurnInput =
       readonly outcome: ToolOutcome;
     };
 
-/** composition root 用它开对话；只有它知道 provider 是谁。 */
+/**
+ * 一次请求的全部内容。
+ *
+ * @remarks
+ * history 是★到目前为止的全部对话★，不是增量。
+ * 这决定了端口是无状态的 —— 见 docs/decisions/0004-history-ownership.md。
+ */
+export type LlmRequest = {
+  readonly system: string;
+  readonly history: readonly TurnInput[];
+};
+
+/**
+ * 问模型。
+ *
+ * @remarks
+ * IMPORTANT: 端口★无状态★。同一个实例可以被并发使用，不需要"开一次对话"。
+ * 历史归用例层所有，所以「回退一轮重来」「编辑上一条重发」都只是换一个数组。
+ *
+ * Result 的错误分支表示「没问到模型」（网络、鉴权、我们读不懂响应），
+ * 不表示「模型说了坏消息」—— 后者是 {@link LlmResponse} 的一个 kind。
+ *
+ * @see docs/decisions/0004-history-ownership.md  为什么历史归用例层
+ */
 export interface LlmPort {
-  startSession(systemPrompt: string): LlmSession;
+  send(
+    req: LlmRequest,
+    opts?: CallOptions,
+  ): Promise<Result<LlmResponse, LlmError>>;
+
+  /** 流式。错误同样走 Result，在最后一块之前可能提前结束。 */
+  stream(
+    req: LlmRequest,
+    opts?: CallOptions,
+  ): AsyncIterable<Result<StreamChunk, LlmError>>;
 }
 
 // ── 工具端口 ──────────────────────────────────────────────────────

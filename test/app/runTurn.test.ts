@@ -428,3 +428,41 @@ describe("createRunConfig：非法配置在这里就被挡住", () => {
     expect(createRunConfig({ ...base, ...over }).ok).toBe(true);
   });
 });
+
+// ══════════════════════════════════════════════════════════════
+// NOTE: 契约⑤改成「用例层拥有全部历史」之后才能这么断言 ——
+//       原来历史攒在适配器肚子里，从外面看不见。
+describe("runTurn 契约⑤：历史归用例层，每次发全量", () => {
+  it("第 2 次请求带着第 1 轮的工具结果，且第 1 条永远是用户提问", async () => {
+    const llm = new FakeLlm([
+      {
+        ok: true,
+        value: {
+          kind: "tool-requested",
+          calls: [{ name: "list_files", id: "t1", dir: "docs" }],
+        },
+      },
+      { ok: true, value: { kind: "completed", text: "两个文件" } },
+    ]);
+    const tools = new FakeTools({ t1: { kind: "ok", content: "README.md" } });
+    const { result } = await collect(
+      run({ llm, tools, sleep: nap }, cfgWith(), SYS, Q),
+    );
+
+    expect(result.kind).toBe("done");
+    expect(llm.sent).toHaveLength(2);
+    // 第 1 次：只有用户提问
+    expect(llm.sent[0]).toEqual([{ role: "user", text: Q }]);
+    // 第 2 次：★全量★ —— 提问还在，后面跟着工具结果
+    expect(llm.sent[1]).toEqual([
+      { role: "user", text: Q },
+      {
+        role: "tool-result",
+        id: "t1",
+        outcome: { kind: "ok", content: "README.md" },
+      },
+    ]);
+    // system prompt 每次都带，端口无状态
+    expect(llm.systems).toEqual([SYS, SYS]);
+  });
+});
