@@ -1,4 +1,4 @@
-import type { InsufficientBudget, InvalidCount, LoopBudget } from "./loop.ts";
+import type { InsufficientBudget, InvalidCount } from "./loop.ts";
 import { isValidCount } from "./loop.ts";
 
 /**
@@ -47,10 +47,11 @@ import { isValidCount } from "./loop.ts";
  *        同一条规则两处实现，而且 decide 先查过之后，
  *        recordToolRuns 的 InsufficientBudget 分支永远走不到（死代码）。
  *        现在：★谁扣预算谁检查★，decide 只判 outcome 的类别。
- *        代价：① 「近的先查」（工具先于模型）★不再由类型保证★，
- *                 迁到用例层 app/runTurn.ts 契约④，靠那里的测试守
- *              ② decide 不再需要 LoopBudget —— 签名少一个参数，
+ *        代价：· 「近的先查」（工具先于模型）★不再由类型保证★，
+ *                 迁到用例层，见 runTurn.ts 契约④，靠那里的测试守
+ *              · decide 不再需要 LoopBudget —— 签名少一个参数，
  *                 所有调用点要改
+ *              ⚠ 这里同样★不能用圈号当列表符★（见 ports.ts 契约⑤ 的同一条）
  *        ★重新考虑的信号★：用例层出现第二个调用 decide 的地方，
  *          而两处的预算顺序写得不一样。
  *

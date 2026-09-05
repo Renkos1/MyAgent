@@ -39,7 +39,7 @@
  *
  * ⑤ 工具怎么跑？
  *      ★并行，但有并发上限 maxConcurrentTools。★
- *      一批里有失败不影响其他 —— 工具失败是数据（ports 契约⑨），不是异常。
+ *      一批里有失败不影响其他 —— 工具失败是数据（见 ports.ts 契约⑨），不是异常。
  *      ⚠ 事件顺序按★请求顺序★发，不按完成顺序，否则日志没法对账。
  *
  * ⑥ 工具结果怎么进上下文？
@@ -60,7 +60,11 @@ import type {
   LoopBudget,
   LoopLimits,
 } from "../domain/loop.ts";
-import { createLoopBudget, recordModelCall, recordToolRuns } from "../domain/loop.ts";
+import {
+  createLoopBudget,
+  recordModelCall,
+  recordToolRuns,
+} from "../domain/loop.ts";
 import { admitInput } from "../domain/input.ts";
 import type { InputError, LimitMode } from "../domain/input.ts";
 import type { InvalidLimit } from "../domain/loop.ts";
@@ -107,7 +111,11 @@ export type RunEvent =
 
 /** 契约⑦：三个顶层 kind。setup 是连预算都没建起来 —— 配置写错了。 */
 export type RunResult =
-  | { readonly kind: "done"; readonly text: string; readonly budget: LoopBudget }
+  | {
+      readonly kind: "done";
+      readonly text: string;
+      readonly budget: LoopBudget;
+    }
   | {
       readonly kind: "aborted";
       readonly reason: AbortReason;
@@ -244,7 +252,11 @@ export async function* run(
     // 契约③：跑工具之前扣工具预算，不够一个都不跑
     const spent = recordToolRuns(budget, decision.toolRuns);
     if (!spent.ok) {
-      return { kind: "aborted", reason: spent.error as InsufficientBudget, budget };
+      return {
+        kind: "aborted",
+        reason: spent.error as InsufficientBudget,
+        budget,
+      };
     }
     budget = spent.value;
 
@@ -267,7 +279,8 @@ export async function* run(
 
     const nextDelta: TurnInput[] = [];
     for (const [i, item] of back.value.items.entries()) {
-      if (item.kind === "truncated") yield { kind: "input-truncated", index: i };
+      if (item.kind === "truncated")
+        yield { kind: "input-truncated", index: i };
       const call = calls[i];
       if (call === undefined) continue;
       nextDelta.push({
