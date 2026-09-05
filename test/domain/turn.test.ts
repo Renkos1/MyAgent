@@ -72,7 +72,7 @@ describe("decide", () => {
         decision: { kind: "aborted", reason: { kind: "empty-response" } },
       },
     ])("$why", ({ outcome, decision }) => {
-      expect(decide(ROOMY, outcome)).toEqual(decision);
+      expect(decide(outcome)).toEqual(decision);
     });
   });
 
@@ -92,13 +92,13 @@ describe("decide", () => {
     });
 
     it("模型额度用光 + completed → ★done，不是 aborted★", () => {
-      expect(decide(modelExhausted, { kind: "completed" })).toEqual({
+      expect(decide({ kind: "completed" })).toEqual({
         kind: "done",
       });
     });
 
     it("工具额度用光 + completed → ★done★", () => {
-      expect(decide(toolExhausted, { kind: "completed" })).toEqual({
+      expect(decide({ kind: "completed" })).toEqual({
         kind: "done",
       });
     });
@@ -106,7 +106,7 @@ describe("decide", () => {
     // 对照组：同一个状态，模型要继续 → 就是失败
     it("模型额度用光 + 要调工具 → aborted(model-calls)", () => {
       expect(
-        decide(modelExhausted, { kind: "tool-requested", toolCount: 1 }),
+        decide({ kind: "tool-requested", toolCount: 1 }),
       ).toEqual({
         kind: "aborted",
         reason: {
@@ -120,7 +120,7 @@ describe("decide", () => {
 
     it("工具额度用光 + 要调工具 → aborted(tool-runs)", () => {
       expect(
-        decide(toolExhausted, { kind: "tool-requested", toolCount: 1 }),
+        decide({ kind: "tool-requested", toolCount: 1 }),
       ).toEqual({
         kind: "aborted",
         reason: {
@@ -140,7 +140,7 @@ describe("decide", () => {
         modelCalls: 2,
         toolRuns: 3,
       });
-      expect(decide(both, { kind: "tool-requested", toolCount: 1 })).toEqual({
+      expect(decide({ kind: "tool-requested", toolCount: 1 })).toEqual({
         kind: "aborted",
         reason: {
           kind: "insufficient-budget",
@@ -203,7 +203,7 @@ describe("decide", () => {
           modelCalls,
           toolRuns,
         });
-        expect(decide(state, { kind: "tool-requested", toolCount })).toEqual({
+        expect(decide({ kind: "tool-requested", toolCount })).toEqual({
           kind: "continue",
           toolRuns: toolCount,
         });
@@ -248,7 +248,7 @@ describe("decide", () => {
           maxToolRuns,
           toolRuns,
         });
-        expect(decide(state, { kind: "tool-requested", toolCount })).toEqual({
+        expect(decide({ kind: "tool-requested", toolCount })).toEqual({
           kind: "aborted",
           reason: {
             kind: "insufficient-budget",
@@ -273,7 +273,7 @@ describe("decide", () => {
       { why: "NaN", toolCount: NaN },
       { why: "超出安全整数", toolCount: 2 ** 53 },
     ])("$why｜toolCount=$toolCount", ({ toolCount }) => {
-      expect(decide(ROOMY, { kind: "tool-requested", toolCount })).toEqual({
+      expect(decide({ kind: "tool-requested", toolCount })).toEqual({
         kind: "aborted",
         reason: { kind: "invalid-count", value: toolCount },
       });
@@ -286,7 +286,7 @@ describe("decide", () => {
         modelCalls: 1,
         toolRuns: 1,
       });
-      expect(decide(noRoom, { kind: "tool-requested", toolCount: 0 })).toEqual({
+      expect(decide({ kind: "tool-requested", toolCount: 0 })).toEqual({
         kind: "aborted",
         reason: { kind: "invalid-count", value: 0 },
       });
@@ -298,9 +298,9 @@ describe("decide", () => {
     it("★纯判定★：调用之后 state 一模一样", () => {
       const before = stateWith({ maxModelCalls: 3, maxToolRuns: 3 });
       const snapshot = structuredClone(before);
-      decide(before, { kind: "completed" });
-      decide(before, { kind: "tool-requested", toolCount: 2 });
-      decide(before, { kind: "truncated" });
+      decide({ kind: "completed" });
+      decide({ kind: "tool-requested", toolCount: 2 });
+      decide({ kind: "truncated" });
       expect(before).toEqual(snapshot);
     });
 
@@ -308,9 +308,9 @@ describe("decide", () => {
       const state = stateWith({ maxModelCalls: 3, maxToolRuns: 3 });
       const outcome: TurnOutcome = { kind: "tool-requested", toolCount: 2 };
       const results = [
-        decide(state, outcome),
-        decide(state, outcome),
-        decide(state, outcome),
+        decide(outcome),
+        decide(outcome),
+        decide(outcome),
       ];
       expect(results).toEqual([results[0], results[0], results[0]]);
       expect(results[0]).toEqual({ kind: "continue", toolRuns: 2 });
@@ -320,7 +320,7 @@ describe("decide", () => {
       const state = stateWith({ maxModelCalls: 9, maxToolRuns: 9 });
       const counts = [1, 2, 3, 4, 5];
       const reported = counts.map((n) => {
-        const d = decide(state, { kind: "tool-requested", toolCount: n });
+        const d = decide({ kind: "tool-requested", toolCount: n });
         return d.kind === "continue" ? d.toolRuns : null;
       });
       expect(reported).toEqual(counts);
@@ -334,7 +334,7 @@ describe("decide", () => {
         { kind: "empty" },
         { kind: "tool-requested", toolCount: 1 },
       ];
-      expect(all.map((o) => decide(ROOMY, o).kind)).toEqual([
+      expect(all.map((o) => decide(o).kind)).toEqual([
         "done",
         "aborted",
         "aborted",

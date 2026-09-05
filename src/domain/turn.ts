@@ -36,14 +36,23 @@ import { isValidCount } from "./loop.ts";
  * ③ ★判定顺序★（同时成立时报哪个）
  *      1. completed          → done，★即使预算刚好用光★
  *      2. truncated/refused/empty → aborted
- *      3. tool-requested     → 先查 toolCount 合法性
- *                              再查★工具预算★（这一轮马上要花的）
- *                              再查★模型预算★（下一轮才要花的）
- *                              都够 → continue
+ *      3. tool-requested     → 查 toolCount 合法性，合法就 continue
  *      判据：★哪个描述了用户实际拿到的东西。★
  *            模型答完了，用户就是拿到了答案 —— 这时报"达到轮次上限"是误导。
  *            模型还要继续而我们不让，用户什么也没拿到 —— 那才是失败。
- *      「近的先查」：工具是这一轮的事，模型调用是下一轮的事。
+ *
+ *      ⚠ ★2026-09 契约变更：预算检查从这里搬走了。★
+ *        原来 decide 里写着 `state.toolRuns + toolCount > maxToolRuns`，
+ *        和 loop.ts recordToolRuns 里的判断★逐字相同★ ——
+ *        同一条规则两处实现，而且 decide 先查过之后，
+ *        recordToolRuns 的 InsufficientBudget 分支永远走不到（死代码）。
+ *        现在：★谁扣预算谁检查★，decide 只判 outcome 的类别。
+ *        代价：① 「近的先查」（工具先于模型）★不再由类型保证★，
+ *                 迁到用例层 app/runTurn.ts 契约④，靠那里的测试守
+ *              ② decide 不再需要 LoopBudget —— 签名少一个参数，
+ *                 所有调用点要改
+ *        ★重新考虑的信号★：用例层出现第二个调用 decide 的地方，
+ *          而两处的预算顺序写得不一样。
  *
  * ④ 「输出被截断」算哪一类？
  *      ★aborted★。半句话不是答案，交给用户等于骗他。
@@ -114,7 +123,7 @@ function assertNever(x: never): never {
 }
 /* v8 ignore stop */
 
-export function decide(state: LoopBudget, outcome: TurnOutcome): Decision {
+export function decide(outcome: TurnOutcome): Decision {
   switch (outcome.kind) {
     // 契约③-1：完成信号最优先，★即使预算刚好用光★
     case "completed":
@@ -128,44 +137,17 @@ export function decide(state: LoopBudget, outcome: TurnOutcome): Decision {
     case "empty":
       return { kind: "aborted", reason: { kind: "empty-response" } };
 
-    // 契约③-3：要调工具时才查预算
+    // 契约③-3：只查良构，不查预算
     case "tool-requested": {
       const { toolCount } = outcome;
-      // 和 loop.ts 的 recordToolRuns 用同一条规则，见契约③
+      // ★这不是预算检查★：说要调工具却给 0 个，是响应自相矛盾。
+      // 和 recordToolRuns 共用 isValidCount ——★同一个实现调两次，不是两份实现★
       if (!isValidCount(toolCount)) {
         return {
           kind: "aborted",
           reason: { kind: "invalid-count", value: toolCount },
         };
       }
-
-      // 先查工具预算：这一轮马上要花的。原子性同 recordToolRuns —— 不够就一个不跑
-      const { maxToolRuns, maxModelCalls } = state.limits;
-      if (state.toolRuns + toolCount > maxToolRuns) {
-        return {
-          kind: "aborted",
-          reason: {
-            kind: "insufficient-budget",
-            limit: "tool-runs",
-            used: state.toolRuns,
-            max: maxToolRuns,
-          },
-        };
-      }
-
-      // 再查模型预算：跑完工具还要再问一次模型，问不起就★别跑那些工具★
-      if (state.modelCalls >= maxModelCalls) {
-        return {
-          kind: "aborted",
-          reason: {
-            kind: "insufficient-budget",
-            limit: "model-calls",
-            used: state.modelCalls,
-            max: maxModelCalls,
-          },
-        };
-      }
-
       return { kind: "continue", toolRuns: toolCount };
     }
 
