@@ -1,3 +1,4 @@
+import { canChdir } from "../helpers/env.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -132,7 +133,7 @@ describe("resolveInsideRoot", () => {
       expect(r.value.startsWith("/")).toBe(true);
     });
 
-    it("★不读 process.cwd()★：换掉 cwd 结果不变", () => {
+    it.skipIf(!canChdir)("不读 process.cwd()：换掉 cwd 结果不变", () => {
       const before = resolveInsideRoot(ROOT, "docs/a.md");
       const cwd = process.cwd();
       const tempDir = mkdtempSync(path.join(tmpdir(), "resolveInsideRoot-"));

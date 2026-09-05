@@ -1,3 +1,4 @@
+import { canChdir } from "../helpers/env.ts";
 import path from "node:path";
 
 import fc from "fast-check";
@@ -94,7 +95,7 @@ describe("resolveInsideRoot 的性质", () => {
     );
   });
 
-  it("★不读 process.cwd()★：换掉 cwd 结果不变", () => {
+  it.skipIf(!canChdir)("不读 process.cwd()：换掉 cwd 结果不变", () => {
     const cwd = process.cwd();
     try {
       fc.assert(

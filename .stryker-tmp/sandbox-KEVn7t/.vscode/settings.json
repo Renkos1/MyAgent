@@ -1,0 +1,28 @@
+// .vscode/settings.json
+{
+  // —— 文件写入规则：直接影响 diff ——
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "[markdown]": {
+    // Markdown 里行尾两个空格 = 硬换行，不能被 trim 掉
+    "files.trimTrailingWhitespace": false
+  },
+
+  // —— 搜索噪音 ——
+  "search.exclude": {
+    "**/dist": true,
+    "**/coverage": true,
+    "**/pnpm-lock.yaml": true
+  },
+
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  // 双版本 alias 下 node_modules/typescript 是 TS 6，没有 TS 7 的 tsserver，
+  // 所以「Use Workspace Version」用不了，编辑器改走原生语言服务
+  "js/ts.experimental.useTsgo": true
+}
