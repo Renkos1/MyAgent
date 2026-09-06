@@ -22,7 +22,7 @@ export class FakeTools implements ToolPort {
   private readonly table: Readonly<Record<string, ToolOutcome>>;
   private readonly hold: number;
 
-  // ⚠ 同上：参数属性在 strip-only 下跑不起来。见 llm.ts 的注释。
+  // TRAP: 同上 —— 参数属性在 strip-only 下跑不起来。见 llm.ts 的注释。
   constructor(table: Readonly<Record<string, ToolOutcome>>, hold = 3) {
     this.table = table;
     this.hold = hold;

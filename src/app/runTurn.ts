@@ -193,6 +193,10 @@ export async function* run(
     // send 之前扣（ADR 0011 §②）
     const before = budget;
     const charged = recordModelCall(budget);
+    // NOTE: 这一支实际不可达 —— 上一轮的 reserveToolRuns 探测过 recordModelCall，
+    //       所以进到下一轮时 modelCalls + 1 <= max 必然成立（ADR 0005）。
+    //       留着是因为它比断言便宜：许可证的不变量哪天被改坏，这里兜得住。
+    //       代价：变异测试永远杀不掉它，这是已知的，不是漏测。
     if (!charged.ok) return { kind: "aborted", reason: charged.error, budget };
     budget = charged.value;
 

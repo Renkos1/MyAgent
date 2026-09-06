@@ -146,6 +146,14 @@ describe("truncateToBytes", () => {
         max: 3,
         kept: "abc",
       },
+      // IMPORTANT: 边界 —— 换行正好在第 0 位，是 lastIndexOf 返回 0 的唯一情形。
+      //            判据写成 lastNewline > 0 的话这一行会整段留下。
+      {
+        why: "第一个字符就是换行，后面再没有",
+        text: "\nxxxxxxxxxxxx",
+        max: 10,
+        kept: "\n",
+      },
     ])("$why｜max=$max", ({ text, max, kept }) => {
       expect(truncateToBytes(text, max)).toBe(kept);
     });
