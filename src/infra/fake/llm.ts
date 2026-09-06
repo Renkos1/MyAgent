@@ -26,7 +26,7 @@ export class FakeLlm implements LlmPort {
   /**
    * 每次请求收到的全量历史，按顺序。
    *
-   * NOTE: 契约⑤改成「用例层拥有历史」之后，这里存的不再是增量。
+   * NOTE: 历史归属改到用例层之后，这里存的不再是增量。
    * 断言「第 2 次请求里带上了第 1 轮的工具结果」直接看 `sent[1]` 就行。
    */
   readonly sent: (readonly TurnInput[])[] = [];

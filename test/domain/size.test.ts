@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { measure, truncateToBytes } from "../../src/domain/size.ts";
 
 /**
- * ⚠ 组合重音必须写成 ́ 转义。
+ * TRAP: 组合重音必须写成 \u0301 转义。
  * 直接在源码里贴 "é" 的组合形式，编辑器 / 终端 / git 都可能悄悄把它
  * 归一化成预组合形式，测试就测不到"同一个字两种长度"这件事了。
  */
@@ -13,7 +13,7 @@ const LONE_SURROGATE = "👍".slice(0, 1); // 半个代理对，不良构
 
 describe("measure", () => {
   // 一行一个字符串，四个单位一起断言 ——
-  // ★这样每一行本身就是"同一个东西四个数字"的证据★
+  // 这样每一行本身就是"同一个东西四个数字"的证据
   it.each<{
     why: string;
     text: string;
@@ -39,9 +39,9 @@ describe("measure", () => {
       codePoints: 2,
       graphemes: 2,
     },
-    // ★这两行是一对★：屏幕上一模一样，四个数字有三个不同
+    // 这两行是一对：屏幕上一模一样，四个数字有三个不同
     {
-      why: "★组合重音★ e + U+0301",
+      why: "组合重音 e + U+0301",
       text: E_COMBINING,
       utf8: 3,
       utf16: 2,
@@ -49,7 +49,7 @@ describe("measure", () => {
       graphemes: 1,
     },
     {
-      why: "★预组合★ U+00E9，看起来完全一样",
+      why: "预组合 U+00E9，看起来完全一样",
       text: E_PRECOMPOSED,
       utf8: 2,
       utf16: 1,
@@ -73,7 +73,7 @@ describe("measure", () => {
       graphemes: 1,
     },
     {
-      why: "★ZWJ 家庭★ 1 和 18 差 18 倍",
+      why: "ZWJ 家庭 1 和 18 差 18 倍",
       text: "👨‍👩‍👧",
       utf8: 18,
       utf16: 8,
@@ -88,10 +88,10 @@ describe("measure", () => {
       codePoints: 2,
       graphemes: 1,
     },
-    // ★半截字符★：utf8 不是 2 —— 半个代理对没有 UTF-8 编码，
+    // TRAP: 半截字符 —— utf8 不是 2，半个代理对没有 UTF-8 编码，
     // 只能被替换成 U+FFFD（3 字节）。见 docs/01 第 12 节。
     {
-      why: "★半个代理对★ utf8 是 3 不是 2",
+      why: "半个代理对 utf8 是 3 不是 2",
       text: LONE_SURROGATE,
       utf8: 3,
       utf16: 1,
@@ -121,7 +121,7 @@ describe("truncateToBytes", () => {
     it.each<{ why: string; text: string; max: number }>([
       { why: "空串", text: "", max: 10 },
       { why: "正好等于上限", text: "hello", max: 5 },
-      { why: "★正好等于上限，有换行也不切★", text: "abc\ndef\nghi", max: 11 },
+      { why: "正好等于上限，有换行也不切", text: "abc\ndef\nghi", max: 11 },
       { why: "中文正好等于上限", text: "你好世界", max: 12 },
       { why: "上限远大于内容", text: "hi", max: 1000 },
     ])("$why｜$max", ({ text, max }) => {
@@ -131,7 +131,7 @@ describe("truncateToBytes", () => {
 
   describe("有换行：退到最近的换行（保留换行本身）", () => {
     it.each<{ why: string; text: string; max: number; kept: string }>([
-      // ★和上面"正好等于上限"那行只差 1 个字节，结果差 3 个字节★
+      // 和上面"正好等于上限"那行只差 1 个字节，结果差 3 个字节
       { why: "上限 −1", text: "abc\ndef\nghi", max: 10, kept: "abc\ndef\n" },
       { why: "退两段", text: "abc\ndef\nghi", max: 7, kept: "abc\n" },
       {
@@ -141,7 +141,7 @@ describe("truncateToBytes", () => {
         kept: "abc\n",
       },
       {
-        why: "★退无可退：前缀里没有换行★",
+        why: "退无可退：前缀里没有换行",
         text: "abc\ndef\nghi",
         max: 3,
         kept: "abc",
@@ -160,9 +160,9 @@ describe("truncateToBytes", () => {
         kept: "你好世",
       },
       { why: "只放得下一个字", text: "你好世界", max: 5, kept: "你" },
-      { why: "★一个字都放不下 → 空串★", text: "你好世界", max: 2, kept: "" },
-      // ★关键★：max=5 时 emoji 占 4 字节，绝不会切出半个
-      { why: "★绝不切碎 emoji★", text: "👍👍", max: 5, kept: "👍" },
+      { why: "一个字都放不下 → 空串", text: "你好世界", max: 2, kept: "" },
+      // IMPORTANT: max=5 时 emoji 占 4 字节，绝不会切出半个
+      { why: "绝不切碎 emoji", text: "👍👍", max: 5, kept: "👍" },
       { why: "ZWJ 家庭整个保住", text: "👨‍👩‍👧x", max: 18, kept: "👨‍👩‍👧" },
       { why: "ZWJ 家庭差 1 字节，整个丢掉", text: "👨‍👩‍👧x", max: 17, kept: "" },
     ])("$why｜max=$max", ({ text, max, kept }) => {
@@ -177,21 +177,21 @@ describe("truncateToBytes", () => {
     const SAMPLE = "报告：👨‍👩‍👧 一家人\n第二行\n第三行";
     const maxes = Array.from({ length: 25 }, (_, i) => i);
 
-    it("★结果永远是良构 Unicode★ —— 从不切碎字符", () => {
+    it("结果永远是良构 Unicode —— 从不切碎字符", () => {
       const bad = maxes.filter(
         (m) => !truncateToBytes(SAMPLE, m).isWellFormed(),
       );
       expect(bad).toEqual([]);
     });
 
-    it("★结果的字节数永远不超过上限★", () => {
+    it("结果的字节数永远不超过上限", () => {
       const over = maxes.filter(
         (m) => measure(truncateToBytes(SAMPLE, m), "utf-8") > m,
       );
       expect(over).toEqual([]);
     });
 
-    it("★结果永远是原文的前缀★ —— 只删不改", () => {
+    it("结果永远是原文的前缀 —— 只删不改", () => {
       const notPrefix = maxes.filter(
         (m) => !SAMPLE.startsWith(truncateToBytes(SAMPLE, m)),
       );

@@ -1,11 +1,11 @@
 /**
  * 造一个「已经用掉一些额度」的 LoopBudget。
  *
- * ★只能通过真实的转换函数推进★ —— 品牌类型不许直接拼 LoopBudget，
+ * IMPORTANT: 只能通过真实的转换函数推进 —— 品牌类型不许直接拼 LoopBudget，
  * 这反过来保证脚手架造出来的状态是循环里真会出现的形状。
  *
- * ⚠ 2026-09 从 test/domain/turn.test.ts 搬过来：decide 不再收 LoopBudget，
- *   那个文件已经完全不碰预算了。★用它的是用例层的测试。★
+ * NOTE: 2026-09 从 test/domain/turn.test.ts 搬过来：decide 不再收 LoopBudget，
+ *   那个文件已经完全不碰预算了。用它的是用例层的测试。
  */
 import type { LoopBudget } from "../../src/domain/loop.ts";
 import {

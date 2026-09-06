@@ -10,7 +10,7 @@ const SYS = "你是仓库助手。";
 const Q = "docs 下有什么？";
 const nap = (): Promise<void> => Promise.resolve();
 
-/** 基线配置。★每个用例只改自己要考的那一两项★，其余保持宽松。 */
+/** 基线配置。每个用例只改自己要考的那一两项，其余保持宽松。 */
 function cfgWith(over: Partial<RunConfig> = {}): ValidRunConfig {
   const built = createRunConfig(raw(over));
   // NOTE: 脚手架自己的前置条件 —— 用例参数写错了要当场炸，不要悄悄跑下去
@@ -35,10 +35,11 @@ function raw(over: Partial<RunConfig> = {}): RunConfig {
   };
 }
 
-describe("runTurn 契约④：两个预算都不够时，报 model-calls", () => {
+// @see docs/decisions/0011-use-case-orchestration.md §④ —— 两个预算都不够时报哪个
+describe("预算：两个都不够时，报 model-calls", () => {
   it("模型额度 1、工具额度 1，第一轮就都用满 → 第二轮报 model-calls", async () => {
     // 排：模型第一轮要 1 个工具（把工具额度用满），第二轮它还想说话 ——
-    //     但那时模型额度已经在第一轮用光了，★根本轮不到第二次 send★。
+    //     但那时模型额度已经在第一轮用光了，根本轮不到第二次 send。
     const llm = new FakeLlm([
       {
         ok: true,
@@ -47,7 +48,7 @@ describe("runTurn 契约④：两个预算都不够时，报 model-calls", () =>
           calls: [{ name: "list_files", id: "t1", dir: "docs" }],
         },
       },
-      // ★脚本故意只给一条★：实现要是真的发了第二次 send，这里会抛"脚本不够"
+      // IMPORTANT: 脚本故意只给一条 —— 实现要是真发了第二次 send，这里会抛"脚本不够"
     ]);
     const tools = new FakeTools({ t1: { kind: "ok", content: "README.md" } });
 
@@ -84,9 +85,10 @@ describe("runTurn 契约④：两个预算都不够时，报 model-calls", () =>
 });
 
 // ══════════════════════════════════════════════════════════════
-describe("runTurn 契约②：端口失败时，没花到钱的预算要退回", () => {
+// @see docs/decisions/0011-use-case-orchestration.md §② —— 模型预算什么时候扣、什么时候退
+describe("预算：端口失败时，没花到钱的要退回", () => {
   // 推演：轮首 recordModelCall → modelCalls=1 → send 失败。
-  // rejected = 401/400，请求没被受理，供应商没产生 token → ★退★ → 回到 0。
+  // rejected = 401/400，请求没被受理，供应商没产生 token → 退 → 回到 0。
   it("rejected → budget 退回，modelCalls 停在 0", async () => {
     const llm = new FakeLlm([{ ok: false, error: { kind: "rejected" } }]);
     const { result } = await collect(
@@ -99,8 +101,8 @@ describe("runTurn 契约②：端口失败时，没花到钱的预算要退回",
     if (result.kind !== "setup") expect(result.budget.modelCalls).toBe(0);
   });
 
-  // aborted = 我们自己叫停，模型那边已经在生成了 → ★不退★ → 停在 1。
-  it("aborted → ★不退★，modelCalls 停在 1", async () => {
+  // aborted = 我们自己叫停，模型那边已经在生成了 → 不退 → 停在 1。
+  it("aborted → 不退，modelCalls 停在 1", async () => {
     const llm = new FakeLlm([{ ok: false, error: { kind: "aborted" } }]);
     const { result } = await collect(
       run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
@@ -113,7 +115,7 @@ describe("runTurn 契约②：端口失败时，没花到钱的预算要退回",
   });
 
   // malformed = 模型答了、只是我们读不懂 → 花了钱 → 不退。
-  it("malformed → ★不退★，modelCalls 停在 1", async () => {
+  it("malformed → 不退，modelCalls 停在 1", async () => {
     const llm = new FakeLlm([{ ok: false, error: { kind: "malformed" } }]);
     const { result } = await collect(
       run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
@@ -124,7 +126,7 @@ describe("runTurn 契约②：端口失败时，没花到钱的预算要退回",
 
 // ══════════════════════════════════════════════════════════════
 describe("runTurn 重试：只对 unavailable，最多 maxRetries 次", () => {
-  // 推演：maxRetries=2 → 第 1 次 + 重试 2 次 = ★一共 send 3 次★，然后放弃。
+  // 推演：maxRetries=2 → 第 1 次 + 重试 2 次 = 一共 send 3 次，然后放弃。
   // 脚本给 4 条：多的那条是陷阱 —— 实现要是重试 3 次，calls 会变成 4。
   it("unavailable 一直失败 → 一共问 3 次", async () => {
     const boom = {
@@ -145,7 +147,7 @@ describe("runTurn 重试：只对 unavailable，最多 maxRetries 次", () => {
   });
 
   // rejected 不该重试 —— 重试没用。
-  it("rejected → ★一次都不重试★，只问 1 次", async () => {
+  it("rejected → 一次都不重试，只问 1 次", async () => {
     const llm = new FakeLlm([
       { ok: false, error: { kind: "rejected" } },
       { ok: false, error: { kind: "rejected" } },
@@ -163,13 +165,14 @@ describe("runTurn 重试：只对 unavailable，最多 maxRetries 次", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-describe("runTurn 契约③：工具预算在跑工具之前扣，不够★一个都不跑★", () => {
+// @see docs/decisions/0011-use-case-orchestration.md §③ —— 工具预算什么时候扣
+describe("预算：工具预算在跑工具之前扣，不够就一个都不跑", () => {
   // 推演：maxToolRuns=1，模型要 2 个工具。
   //   轮首扣模型 → modelCalls=1（额度 9，够）
   //   decide → continue{toolRuns:2}
   //   recordToolRuns(budget, 2)：0 + 2 > 1 → 失败，used=0 max=1
-  // ★关键断言★：失败发生在跑工具之前，所以 tools.seen 必须是空的。
-  it("额度 1 而模型要 2 个 → aborted(tool-runs)，且★一个工具都没跑★", async () => {
+  // IMPORTANT: 失败发生在跑工具之前，所以 tools.seen 必须是空的。
+  it("额度 1 而模型要 2 个 → aborted(tool-runs)，且一个工具都没跑", async () => {
     const llm = new FakeLlm([
       {
         ok: true,
@@ -210,12 +213,13 @@ describe("runTurn 契约③：工具预算在跑工具之前扣，不够★一�
         max: 1,
       },
     });
-    expect(tools.seen).toEqual([]); // ★没发生什么★
+    expect(tools.seen).toEqual([]); // 断言③：没发生什么
   });
 });
 
 // ══════════════════════════════════════════════════════════════
-describe("runTurn 契约⑤：并行有上限", () => {
+// @see docs/decisions/0011-use-case-orchestration.md §⑤ —— 工具怎么跑
+describe("工具：并行有上限", () => {
   // 推演：模型一次要 4 个工具，maxConcurrentTools=2 → 同时最多 2 个在跑。
   it("4 个工具、上限 2 → 并发峰值是 2", async () => {
     const calls = [1, 2, 3, 4].map((n) => ({
@@ -247,10 +251,11 @@ describe("runTurn 契约⑤：并行有上限", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-describe("runTurn 契约⑥：用户输入 reject，工具结果 truncate", () => {
+// @see docs/decisions/0011-use-case-orchestration.md §⑥ —— 工具结果怎么进上下文
+describe("输入：用户输入 reject，工具结果 truncate", () => {
   // 推演：maxInputBytesPerItem=20。
   //   问题 "q" 1 字节，过。
-  //   工具结果 60 字节 > 20 → toolResultMode="truncate" → ★截断后继续★，不是失败。
+  //   工具结果 60 字节 > 20 → toolResultMode="truncate" → 截断后继续，不是失败。
   it("工具结果超长 → 截断后循环继续，最终 done", async () => {
     const llm = new FakeLlm([
       {
@@ -285,7 +290,7 @@ describe("runTurn 契约⑥：用户输入 reject，工具结果 truncate", () =
   });
 
   // 反向：用户输入超长 → userInputMode="reject" → 当场失败，一次模型都不问。
-  it("用户输入超长 → setup 失败，★一次都不问模型★", async () => {
+  it("用户输入超长 → setup 失败，一次都不问模型", async () => {
     const llm = new FakeLlm([]);
     const { result } = await collect(
       run(
@@ -311,7 +316,8 @@ describe("runTurn 契约⑥：用户输入 reject，工具结果 truncate", () =
 });
 
 // ══════════════════════════════════════════════════════════════
-describe("runTurn 契约⑦：四个顶层 kind 各自出现在该出现的地方", () => {
+// @see docs/decisions/0011-use-case-orchestration.md §⑦ —— 返回什么
+describe("返回：四个顶层 kind 各自出现在该出现的地方", () => {
   it("模型直接说完 → done，text 是模型说的那句", async () => {
     const llm = new FakeLlm([
       { ok: true, value: { kind: "completed", text: "答案" } },
@@ -361,7 +367,7 @@ describe("runTurn 契约⑦：四个顶层 kind 各自出现在该出现的地�
 });
 
 // ══════════════════════════════════════════════════════════════
-// NOTE: 「上限非法 → run 返回 setup」这条测试★写不出来了★ ——
+// NOTE: 「上限非法 → run 返回 setup」这条测试写不出来了 ——
 //       ValidRunConfig 让非法配置到不了 run 的门口。断言跟着规则搬到这一层。
 describe("createRunConfig：非法配置在这里就被挡住", () => {
   const okLimits = {
@@ -430,9 +436,10 @@ describe("createRunConfig：非法配置在这里就被挡住", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// NOTE: 契约⑤改成「用例层拥有全部历史」之后才能这么断言 ——
+// NOTE: 历史归属改到用例层之后才能这么断言 ——
 //       原来历史攒在适配器肚子里，从外面看不见。
-describe("runTurn 契约⑤：历史归用例层，每次发全量", () => {
+// @see docs/decisions/0004-history-ownership.md
+describe("历史：归用例层，每次发全量", () => {
   it("第 2 次请求带着第 1 轮的工具结果，且第 1 条永远是用户提问", async () => {
     const llm = new FakeLlm([
       {
@@ -453,7 +460,7 @@ describe("runTurn 契约⑤：历史归用例层，每次发全量", () => {
     expect(llm.sent).toHaveLength(2);
     // 第 1 次：只有用户提问
     expect(llm.sent[0]).toEqual([{ role: "user", text: Q }]);
-    // 第 2 次：★全量★ —— 提问还在，后面跟着工具结果
+    // 第 2 次：全量 —— 提问还在，后面跟着工具结果
     expect(llm.sent[1]).toEqual([
       { role: "user", text: Q },
       {
@@ -468,9 +475,10 @@ describe("runTurn 契约⑤：历史归用例层，每次发全量", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// NOTE: 这条保证在阶段 1 由 decide 提供（「问不起就别跑那些工具」），
-//       ❸B 把预算检查搬走时丢了，现在由 reserveToolRuns 的许可证找回来。
-describe("runTurn 契约③：跑完工具还问得起模型，否则★一个都不跑★", () => {
+// NOTE: 这条保证原先由 decide 提供（「问不起就别跑那些工具」），
+//       预算检查搬出 decide 时丢了，现在由 reserveToolRuns 的许可证找回来。
+// @see docs/decisions/0005-tool-run-permit.md
+describe("预算：跑完工具还得问得起模型，否则一个都不跑", () => {
   it("工具额度充足但模型额度只剩这一次 → 工具一个都不跑", async () => {
     const llm = new FakeLlm([
       {
@@ -508,7 +516,7 @@ describe("runTurn 契约③：跑完工具还问得起模型，否则★一个�
         max: 1,
       },
     });
-    // 核心断言：★工具一个都没跑，IO 和额度都没浪费★
+    // IMPORTANT: 工具一个都没跑 —— IO 和额度都没浪费
     expect(tools.seen).toEqual([]);
   });
 });
