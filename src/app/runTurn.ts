@@ -39,13 +39,13 @@ import { toOutcome } from "./ports.ts";
  * 循环过程中吐出去的事件。
  *
  * @remarks
- * run 是 async generator，★事件是它的第二种可观察输出★ ——
+ * IMPORTANT: run 是 async generator，事件是它的第二种可观察输出 ——
  * 和返回值一样属于契约（选 generator 的全部理由就在这里）。
  *
  * 每一轮的顺序固定：
  * `turn-started` → `retrying`* → `tool-started`* → `tool-finished`* → `input-truncated`*
  *
- * IMPORTANT: ★所有 tool-started 在任何 tool-finished 之前发完★ ——
+ * IMPORTANT: 所有 tool-started 在任何 tool-finished 之前发完 ——
  * 工具是并发跑的，调用方不要按「一发一收」配对，要按 call.id 对账。
  */
 export type RunEvent =
@@ -190,7 +190,7 @@ function renderOutcome(outcome: ToolOutcome): string {
  * 循环的终止由预算保证，不由轮数：每轮开头先扣模型调用，
  * 跑工具前还要拿到许可证（同时确认「跑完之后还问得起模型」）。
  *
- * IMPORTANT: 它★不抛异常★。端口失败进 `failed`，我们自己的规则挡下来进
+ * IMPORTANT: 它不抛异常。端口失败进 `failed`，我们自己的规则挡下来进
  * `aborted`，输入在进循环前就不合法进 `setup` —— 三者调用方的处理不同。
  *
  * @param deps - 注入的端口和 sleep

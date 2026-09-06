@@ -58,7 +58,7 @@ export type InsufficientBudget = {
 };
 
 /**
- * 四条上限。★都是"最多多少"，不是"已经用了多少"★ —— 后者在 LoopBudget 里。
+ * 四条上限。IMPORTANT: 都是"最多多少"，不是"已经用了多少" —— 后者在 LoopBudget 里。
  *
  * @remarks
  * 合法性由 createLoopBudget 校验，之后不再复查。

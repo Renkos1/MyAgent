@@ -44,7 +44,7 @@ export type InputItem =
  * @remarks
  * 前三个是 input.ts 自己的判断，后两个是「组合的成本」——
  * 一旦调用 loop.ts，loop.ts 能返回的错误就并进了这里。
- * NOTE: 每个 kind 都带 index，但★不带那段文本★ —— 它来自模型/用户。
+ * SAFETY: 每个 kind 都带 index，但不带那段文本 —— 它来自模型/用户。
  */
 export type InputError =
   /** 输入本身不是良构 Unicode —— 上游多半已经按下标截断过一次。 */
@@ -89,7 +89,7 @@ export type Admitted = {
  *
  * @remarks
  * 纯函数：不改入参，返回新的 {@link LoopBudget}。
- * 顺序是死的 —— ★良构检查在测量之前★（不良构的文本量出来的字节数是错的）。
+ * SAFETY: 顺序是死的，良构检查在测量之前（不良构的文本量出来的字节数是错的）。
  * 单段上限 reject 就报错、truncate 就切；总量上限一律报错，切不了。
  *
  * @param state - 当前预算，只读

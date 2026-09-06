@@ -27,7 +27,7 @@ export type Scripted = Result<LlmResponse, LlmError>;
  * 按脚本依次返回预设响应的假模型，另外把收到的历史全存下来。
  *
  * @remarks
- * IMPORTANT: ★脚本长度本身就是一条断言★ —— 跑完还问就抛错，
+ * IMPORTANT: 脚本长度本身就是一条断言 —— 跑完还问就抛错，
  * 所以「最多问 N 次」不用写 expect，摆好脚本就有了。
  */
 export class FakeLlm implements LlmPort {

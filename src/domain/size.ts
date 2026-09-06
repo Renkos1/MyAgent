@@ -17,9 +17,9 @@
 /** 品牌符号。只声明不定义 —— 运行时不存在。 */
 declare const unitBrand: unique symbol;
 
-/** UTF-8 字节数。★判上限只用这个单位★，别的都只用来看。 */
+/** UTF-8 字节数。IMPORTANT: 判上限只用这个单位，别的都只用来看。 */
 export type Utf8Bytes = number & { readonly [unitBrand]: "utf-8" };
-/** UTF-16 码元数，也就是 `String.length`。SAFETY: ★不能拿它当切点★。 */
+/** UTF-16 码元数，也就是 `String.length`。SAFETY: 不能拿它当切点。 */
 export type Utf16Units = number & { readonly [unitBrand]: "utf-16" };
 /** 码点数（`[...text].length`）。emoji 的组合序列会被数成多个。 */
 export type CodePoints = number & { readonly [unitBrand]: "code-point" };
