@@ -4,3 +4,7 @@ coverage
 pnpm-lock.yaml
 .stryker-tmp/
 reports/
+
+# 成绩单是 scripts/eval.ts 写出来的，JSON.stringify 不会折叠短数组，prettier 会 ——
+# 让格式化器和生成器打架只会产生 churn。同 reports/。
+eval/results/

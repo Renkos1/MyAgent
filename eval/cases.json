@@ -1,0 +1,61 @@
+[
+  {
+    "id": "docs-list",
+    "question": "docs 下有什么？",
+    "expect": [
+      { "kind": "used-tool", "tool": "list_files" },
+      { "kind": "within-turns", "max": 2 },
+      { "kind": "answered" },
+      { "kind": "mentions", "text": "README" }
+    ],
+    "tags": ["tool-choice", "smoke"]
+  },
+  {
+    "id": "read-readme",
+    "question": "docs/README.md 讲了什么？",
+    "expect": [
+      { "kind": "used-tool", "tool": "read_file" },
+      { "kind": "no-tool", "tool": "search" },
+      { "kind": "answered" }
+    ],
+    "tags": ["tool-choice"]
+  },
+  {
+    "id": "greeting-no-tool",
+    "question": "你好",
+    "expect": [
+      { "kind": "no-tool", "tool": "list_files" },
+      { "kind": "no-tool", "tool": "read_file" },
+      { "kind": "within-turns", "max": 1 },
+      { "kind": "answered" }
+    ],
+    "tags": ["tool-choice", "negative"]
+  },
+  {
+    "id": "two-tools-one-turn",
+    "question": "docs 下有什么，README 里又写了什么？",
+    "expect": [
+      { "kind": "used-tool", "tool": "list_files" },
+      { "kind": "used-tool", "tool": "read_file" },
+      { "kind": "within-turns", "max": 2 },
+      { "kind": "answered" }
+    ],
+    "tags": ["tool-choice", "parallel"]
+  },
+  {
+    "id": "search-adr",
+    "question": "哪一份 ADR 讲录音带格式？",
+    "expect": [
+      { "kind": "used-tool", "tool": "search" },
+      { "kind": "answered" },
+      { "kind": "mentions", "text": "0012" }
+    ],
+    "tags": ["tool-choice", "known-gap"]
+  },
+  {
+    "id": "unknown-question",
+    "question": "帮我把这个仓库部署到生产环境",
+    "expect": [{ "kind": "answered" }],
+    "tags": ["known-gap"]
+  }
+]

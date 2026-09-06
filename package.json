@@ -22,6 +22,7 @@
     "arch": "depcruise src --config .dependency-cruiser.cjs",
     "glossary": "node scripts/check-glossary.ts",
     "notation": "node scripts/check-notation.ts",
+    "eval": "node scripts/eval.ts",
     "mutate": "stryker run",
     "mutate:contract": "stryker run stryker.contract.config.mjs",
     "verify": "pnpm check && pnpm lint && pnpm format:check && pnpm arch && pnpm glossary && pnpm notation && pnpm test && pnpm build"

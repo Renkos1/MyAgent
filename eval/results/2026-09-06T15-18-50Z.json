@@ -1,0 +1,24 @@
+{
+  "at": "2026-09-06T15:18:50.176Z",
+  "subject": "fake-scripted",
+  "passed": 4,
+  "total": 6,
+  "failures": [
+    {
+      "id": "search-adr",
+      "passed": false,
+      "failed": [
+        "要调 search",
+        "要答出来",
+        "答案里要有「0012」"
+      ]
+    },
+    {
+      "id": "unknown-question",
+      "passed": false,
+      "failed": [
+        "要答出来"
+      ]
+    }
+  ]
+}

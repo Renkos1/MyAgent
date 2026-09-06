@@ -33,6 +33,10 @@ budget    3 处   turn.ts 的 "budget-exhausted"
 | 摆场景   | `stage`        | 把一个实现驱动到某个场景            | 不是「构造一个实例」          | `Stage` / `cannotStage`                                 |
 | **取消** | `aborted`      | ★我们自己叫停★（signal 触发）       | ⛔ 不是「失败」，不是「超时」 | `LlmError` / `ToolOutcome` 各一格                       |
 | 契约套件 | `contract`     | ★跑在每一个实现上★的那组测试        | ⛔ 不是「用 Fake 写的测试」   | `llmPortContract` / `toolPortContract`                  |
+| **题目** | `EvalCase`     | ★eval 里的一道题★                   | ⛔ 不是「测试用例」           | `EvalCase` / `parseCases`                               |
+| 判分点   | `Check`        | 一道题里的一条★程序可判★的要求      | 不是「断言」（那是测试里的）  | `Check` / `judge` / `describeCheck`                     |
+| 记录     | `Transcript`   | 跑一道题留下的★可观测面★            | ⛔ 不是「日志」，不是「事件」 | `Transcript` / `toTranscript`                           |
+| 被测对象 | `subject`      | 被契约或 eval 拿来考的那个实现      | 不是「模型」（模型是一种）    | `Subject` / `LlmSubject`                                |
 
 ## 允许的同义词（避免检查器误伤）
 
