@@ -40,3 +40,14 @@ jobs:
 
       - name: Verify
         run: pnpm verify
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always() # 即使前面失败也上传
+        with:
+          name: coverage
+          path: coverage/
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true

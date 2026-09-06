@@ -4,6 +4,9 @@
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
     "vitest.explorer",
-    "editorconfig.editorconfig"
-  ]
+    "editorconfig.editorconfig",
+    "ryanluker.vscode-coverage-gutters",
+    "EditorConfig.EditorConfig"
+  ],
+  "unwantedRecommendations": ["hookyqr.beautify"]
 }

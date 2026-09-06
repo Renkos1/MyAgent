@@ -21,9 +21,13 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-
+    "noImplicitReturns": true,
     // 源码里写 ./x.ts，产物里改写成 ./x.js
     "rewriteRelativeImportExtensions": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
 
     "noEmit": true
   },

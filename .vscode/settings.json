@@ -18,9 +18,11 @@
 
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true,
+  "files.autoSave": "off",
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit"
   },
+  "editor.rulers": [100],
 
   // 双版本 alias 下 node_modules/typescript 是 TS 6，没有 TS 7 的 tsserver，
   // 所以「Use Workspace Version」用不了，编辑器改走原生语言服务
