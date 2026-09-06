@@ -11,12 +11,15 @@
  *   IMPORTANT: 规范只写在文档里时，唯一的执行者是记性 —— 记性会输。
  *
  * ── 管什么，不管什么 ──────────────────────────────────────────
- *   管    强调符号（下面 BANNED 那三个）：约定标签能完全替代它们
+ *   管    src/ 和 test/ 的全部 .ts，加上 scripts/check-*.ts
+ *         判据是「这个文件会不会被反复读和改」——
+ *         门禁脚本会（每次红了都有人读它的头注释和输出）
+ *   不管  scripts/ 里的一次性测量脚本（bench-* / co-change 之类）：
+ *         跑一次、数字进文档，之后没人再读。为它们改 99 处是纯 churn
  *   不管  CLI 输出里的符号（禁止号、对勾）：那是给终端看的词汇，不是注释
  *   不管  docs/ 下的 markdown：读者是人不是 grep，渲染出来需要视觉重量
  *
  * 用法   node scripts/check-notation.ts [仓库根目录]     默认当前目录
- *        扫 <根>/src、<根>/test、<根>/scripts 下的 .ts
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -35,6 +38,13 @@ const BANNED: ReadonlyArray<readonly [string, string]> = [
 
 const DIRS = ["src", "test", "scripts"];
 
+/** scripts/ 只看门禁脚本。理由见文件头。 */
+function inScope(file: string): boolean {
+  const norm = file.replaceAll("\\", "/");
+  if (!norm.includes("/scripts/") && !norm.startsWith("scripts/")) return true;
+  return /(^|\/)check-[^/]*\.ts$/.test(norm);
+}
+
 const root = process.argv[2] ?? ".";
 
 /** 递归收集一个目录下所有 .ts。目录不存在就当空的。 */
@@ -49,7 +59,7 @@ function walk(dir: string): string[] {
   return out;
 }
 
-const files = DIRS.flatMap((d) => walk(join(root, d)));
+const files = DIRS.flatMap((d) => walk(join(root, d))).filter(inScope);
 const problems: string[] = [];
 
 for (const file of files) {
@@ -65,7 +75,7 @@ for (const file of files) {
   }
 }
 
-console.log(`扫描 ${String(files.length)} 个 .ts（${DIRS.join(" / ")}）`);
+console.log(`扫描 ${String(files.length)} 个 .ts（src / test / scripts 的门禁脚本）`);
 console.log("─".repeat(70));
 
 if (problems.length === 0) {
