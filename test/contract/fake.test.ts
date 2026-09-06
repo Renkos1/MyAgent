@@ -97,6 +97,9 @@ const CALL: Readonly<Record<ToolOutcome["kind"], ToolCall>> = {
   "not-found": { name: "read_file", id: "missing", path: "docs/nope.md" },
   "too-large": { name: "read_file", id: "big", path: "docs/huge.md" },
   failed: { name: "search", id: "boom", query: "预算" },
+  // TRAP: 故意用 ok 那一格的 call —— 表里 "ok" 是有答案的，
+  //       实现必须让 signal 压过它，才算真的看了 signal。
+  aborted: { name: "read_file", id: "ok", path: "docs/README.md" },
 };
 
 const TABLE: Readonly<Record<string, ToolOutcome>> = {
@@ -113,7 +116,11 @@ const tools: ToolPort = new FakeTools(TABLE, 0);
 toolPortContract({
   name: "FakeTools",
   cannotStage: [],
-  stage: (kind) => ({ port: tools, call: CALL[kind] }),
+  stage: (kind) => ({
+    port: tools,
+    call: CALL[kind],
+    opts: kind === "aborted" ? { signal: AbortSignal.abort() } : undefined,
+  }),
   surprise: {
     port: tools,
     call: { name: "list_files", id: "从来没见过的 id", dir: "docs" },

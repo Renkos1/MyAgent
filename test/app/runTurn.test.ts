@@ -822,7 +822,8 @@ describe("工具结果进上下文：两条失败路径", () => {
 // ══════════════════════════════════════════════════════════════
 // 工具失败是数据不是异常（ADR 0007 §⑨）—— 所以它必须能被渲染成文本喂回模型。
 // 这四支原来一条都没跑过：table 里只放过 ok。
-describe("工具失败：四种 outcome 各自的文本", () => {
+// @see docs/decisions/0014-tool-outcome-aborted.md §① —— aborted 的措辞为什么不同
+describe("工具结果：五种非 ok 的 outcome 各自的文本", () => {
   const call = { name: "read_file" as const, id: "t1", path: "f" };
 
   it.each<{ why: string; outcome: ToolOutcome; text: string }>([
@@ -845,6 +846,12 @@ describe("工具失败：四种 outcome 各自的文本", () => {
       why: "failed 带上闭集里的 cause",
       outcome: { kind: "failed", cause: "timeout" },
       text: "[工具失败：timeout]",
+    },
+    {
+      // 取消不是失败，所以措辞里没有"失败"两个字（ADR 0014 §①）
+      why: "aborted 说的是取消，不是失败",
+      outcome: { kind: "aborted" },
+      text: "[工具已取消]",
     },
   ])("$why", async ({ outcome, text }) => {
     const llm = new FakeLlm([

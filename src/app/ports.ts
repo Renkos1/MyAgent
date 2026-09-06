@@ -151,15 +151,27 @@ export type ToolOutcome =
   | {
       readonly kind: "failed";
       readonly cause: "io-error" | "timeout" | "unknown";
-    };
+    }
+  /**
+   * 我们自己叫停的。IMPORTANT: 取消不是失败 —— 调用方对这两者的处理不同：
+   * 不记进错误率、不重试、不该告诉模型「工具坏了」。
+   *
+   * TODO(阶段 7 之前): 这一格现在分不出「一步都没跑」和「跑完了、副作用已经
+   * 发生」。判据和期限见 ADR 0014 §②：过了第一次把 outcome 写进库的那一刻，
+   * 代码成本不变，数据成本变成无穷。
+   */
+  | { readonly kind: "aborted" };
 
 /**
  * 跑一个工具，把结果压成 {@link ToolOutcome}。
  *
  * @remarks
  * 和 {@link LlmPort} 同一条规矩：端口无状态。IMPORTANT: 它不抛异常 ——
- * 失败也是返回值。并发上限、预算、重试都在用例层，适配器不许自己决定。
+ * 失败也是返回值，取消也是。opts.signal 已经 aborted 时返回
+ * `{ kind: "aborted" }`，不许抛 AbortError（契约套件会验）。
+ * 并发上限、预算、重试都在用例层，适配器不许自己决定。
  * @see docs/decisions/0007-port-shapes.md
+ * @see docs/decisions/0014-tool-outcome-aborted.md
  */
 export interface ToolPort {
   run(call: ToolCall, opts?: CallOptions): Promise<ToolOutcome>;

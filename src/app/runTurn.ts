@@ -179,6 +179,9 @@ function renderOutcome(outcome: ToolOutcome): string {
       return `[工具失败：${String(outcome.bytes)} 字节超过上限 ${String(outcome.max)}]`;
     case "failed":
       return `[工具失败：${outcome.cause}]`;
+    // NOTE: 措辞和上面几支不同是有意的 —— 取消不是失败（ADR 0014 §①）。
+    case "aborted":
+      return "[工具已取消]";
   }
 }
 

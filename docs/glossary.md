@@ -31,6 +31,7 @@ budget    3 处   turn.ts 的 "budget-exhausted"
 | 字素簇   | `grapheme`     | 人眼里的一个字                      | 不是码点，不是 UTF-16 单元    | `Graphemes` / `measure(t,"grapheme")`                   |
 | **场景** | `scenario`     | ★外面的世界的一种形状★              | ⛔ 不是「测试用例」           | `Scenario` / `SCENARIOS`                                |
 | 摆场景   | `stage`        | 把一个实现驱动到某个场景            | 不是「构造一个实例」          | `Stage` / `cannotStage`                                 |
+| **取消** | `aborted`      | ★我们自己叫停★（signal 触发）       | ⛔ 不是「失败」，不是「超时」 | `LlmError` / `ToolOutcome` 各一格                       |
 | 契约套件 | `contract`     | ★跑在每一个实现上★的那组测试        | ⛔ 不是「用 Fake 写的测试」   | `llmPortContract` / `toolPortContract`                  |
 
 ## 允许的同义词（避免检查器误伤）

@@ -42,8 +42,9 @@ export class FakeTools implements ToolPort {
     try {
       for (let i = 0; i < this.hold; i++) await Promise.resolve();
       this.seen.push(call);
-      if (opts?.signal?.aborted === true)
-        return { kind: "failed", cause: "unknown" };
+      // ADR 0014 §①：取消不是失败。IMPORTANT: 这里返回 aborted 而不是
+      // failed/unknown —— 后者会让调用方把「我们叫停」记成「工具坏了」。
+      if (opts?.signal?.aborted === true) return { kind: "aborted" };
       return this.table[call.id] ?? { kind: "not-found" };
     } finally {
       this.running -= 1;

@@ -7,7 +7,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { ToolCall, ToolOutcome, ToolPort } from "../../src/app/ports.ts";
+import type {
+  CallOptions,
+  ToolCall,
+  ToolOutcome,
+  ToolPort,
+} from "../../src/app/ports.ts";
 
 /**
  * 五种结果各自对应外面的什么事。
@@ -20,14 +25,22 @@ export const TOOL_SCENARIOS: Readonly<Record<ToolOutcome["kind"], string>> = {
   "not-found": "目标不存在",
   "too-large": "超过单次读取的字节上限",
   failed: "IO 出错 / 超时 / 说不上来",
+  aborted: "我们自己叫停（ADR 0014 §①：取消不是失败）",
 };
 
 const KINDS = Object.keys(TOOL_SCENARIOS) as ToolOutcome["kind"][];
 
-/** 把实现驱动到某个结果。返回 null = 摆不出，那一格进能力矩阵。 */
-export type ToolStage = (
-  kind: ToolOutcome["kind"],
-) => { readonly port: ToolPort; readonly call: ToolCall } | null;
+/**
+ * 把实现驱动到某个结果。返回 null = 摆不出，那一格进能力矩阵。
+ *
+ * NOTE: 要连 opts 一起给回来 —— aborted 那一格只有靠 signal 才摆得出，
+ * 而 signal 是 run 的参数，不是端口的构造参数。
+ */
+export type ToolStage = (kind: ToolOutcome["kind"]) => {
+  readonly port: ToolPort;
+  readonly call: ToolCall;
+  readonly opts: CallOptions | undefined;
+} | null;
 
 /** 一个被测的工具实现。 */
 export type ToolSubject = {
@@ -59,8 +72,20 @@ export function toolPortContract(subject: ToolSubject): void {
       const staged = subject.stage(kind);
       if (staged === null)
         throw new Error(`${kind}: 声明说摆得出，却给了 null`);
-      const outcome = await staged.port.run(staged.call);
+      const outcome = await staged.port.run(staged.call, staged.opts);
       expect(outcome.kind).toBe(kind);
+    });
+
+    // TRAP: 这一条不能和上面那条合并。上面问的是「摆得出这一格吗」，
+    //       这一条问的是「取消压不压得过表里摆好的答案」——
+    //       合并了就分不出「没看 signal」和「表里本来就没有」。
+    it("signal 已经 aborted 时，压过表里摆好的答案", async () => {
+      const staged = subject.stage("ok");
+      if (staged === null) throw new Error("ok 都摆不出，契约无从谈起");
+      const outcome = await staged.port.run(staged.call, {
+        signal: AbortSignal.abort(),
+      });
+      expect(outcome.kind).toBe("aborted");
     });
 
     it("意料之外的调用也返回结果，不抛", async () => {
