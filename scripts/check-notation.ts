@@ -75,7 +75,9 @@ for (const file of files) {
   }
 }
 
-console.log(`扫描 ${String(files.length)} 个 .ts（src / test / scripts 的门禁脚本）`);
+console.log(
+  `扫描 ${String(files.length)} 个 .ts（src / test / scripts 的门禁脚本）`,
+);
 console.log("─".repeat(70));
 
 if (problems.length === 0) {
