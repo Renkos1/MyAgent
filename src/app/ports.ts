@@ -62,7 +62,18 @@ export type LlmError =
 /** 现在就留，阶段 2 没人传 —— 留口子便宜，改签名贵。 */
 export type CallOptions = { readonly signal?: AbortSignal };
 
-/** 流式的一块。和 send 并存，最后一块带完整的 {@link LlmResponse}。 */
+/**
+ * 流式的一块。和 send 并存，最后一块带完整的 {@link LlmResponse}。
+ *
+ * @remarks
+ * IMPORTANT: 两条不变量，契约套件逐个实现验：
+ * 1. 结局必须和 send 落在同一个 kind —— 同一件事经两条路径不许有两种说法。
+ * 2. kind 是 completed 时，全部 text 块的 delta 拼起来必须等于结尾块的 text ——
+ *    否则打字机效果显示的和最终答案是两句话。
+ *
+ * TODO(阶段 4): truncated 的 partialText 要不要也走 text 块？真适配器一定会发
+ * （截断之前的文本已经流出去了），FakeLlm 不发 —— 契约现在没说，接真模型时定。
+ */
 export type StreamChunk =
   | { readonly kind: "text"; readonly delta: string }
   | { readonly kind: "end"; readonly response: LlmResponse };

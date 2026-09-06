@@ -29,6 +29,9 @@ budget    3 处   turn.ts 的 "budget-exhausted"
 | 轮次     | `turn`         | 一次「问模型 → 拿到响应」           | 不是「一次工具调用」          | `TurnOutcome` / `decide`                                |
 | 裁决     | `decision`     | 一轮结束后该继续/结束/中止          | 不是「结果」（那是 Result）   | `Decision`                                              |
 | 字素簇   | `grapheme`     | 人眼里的一个字                      | 不是码点，不是 UTF-16 单元    | `Graphemes` / `measure(t,"grapheme")`                   |
+| **场景** | `scenario`     | ★外面的世界的一种形状★              | ⛔ 不是「测试用例」           | `Scenario` / `SCENARIOS`                                |
+| 摆场景   | `stage`        | 把一个实现驱动到某个场景            | 不是「构造一个实例」          | `Stage` / `cannotStage`                                 |
+| 契约套件 | `contract`     | ★跑在每一个实现上★的那组测试        | ⛔ 不是「用 Fake 写的测试」   | `llmPortContract` / `toolPortContract`                  |
 
 ## 允许的同义词（避免检查器误伤）
 
@@ -36,6 +39,8 @@ budget    3 处   turn.ts 的 "budget-exhausted"
 max      ✅  只作为★字段名前缀★用：maxToolRuns。它是 limit 的一种写法，不是新概念
 count    ✅  「个数」，和预算无关：toolCount / InvalidCount
 size     ✅  「字节数」，size.ts 的领域词，和上限无关
+fake     ✅  测试替身的实现。IMPORTANT: 它是端口的★一个实现★，不是「场景」
+stage    ⚠  只作动词用：把实现摆到某个场景。★不要用来指「阶段」★（那是 phase）
 state    ⚠  ★避免★。以前 LoopState 就是含糊在这里 —— 它是预算，不是泛指的"状态"
 ```
 
