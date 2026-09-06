@@ -9,20 +9,28 @@ import type {
   ToolPort,
 } from "../../app/ports.ts";
 
+/**
+ * 按表返回预设结果的假工具执行器，同时★量峰值并发★。
+ *
+ * @remarks
+ * 「并发上限有没有生效」用别的办法测不出来 —— 返回值里看不到它。
+ */
 export class FakeTools implements ToolPort {
   readonly seen: ToolCall[] = [];
   /** 同时在跑的最大个数。用来验 maxConcurrentTools。 */
   peakConcurrency = 0;
   private running = 0;
 
-  /**
-   * @param table  按 call.id 给结果；查不到就返回 not-found
-   * @param hold - 每次 run 至少挂起几个微任务轮次。IMPORTANT: 不挂起就量不到并发
-   */
   private readonly table: Readonly<Record<string, ToolOutcome>>;
   private readonly hold: number;
 
-  // TRAP: 同上 —— 参数属性在 strip-only 下跑不起来。见 llm.ts 的注释。
+  /**
+   * 摆好结果表。
+   *
+   * @param table - 按 call.id 给结果；查不到就返回 not-found
+   * @param hold - 每次 run 至少挂起几个微任务轮次。IMPORTANT: 不挂起就量不到并发
+   */
+  // TRAP: 不能写成参数属性 —— 参数属性在 strip-only 下跑不起来。见 llm.ts 的注释。
   constructor(table: Readonly<Record<string, ToolOutcome>>, hold = 3) {
     this.table = table;
     this.hold = hold;

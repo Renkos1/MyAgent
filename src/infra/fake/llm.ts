@@ -20,8 +20,16 @@ import type {
 import type { Result } from "../../domain/result.ts";
 import { err, ok } from "../../domain/result.ts";
 
+/** 脚本里的一格：这一次 send 要返回成功响应还是错误。 */
 export type Scripted = Result<LlmResponse, LlmError>;
 
+/**
+ * 按脚本依次返回预设响应的假模型，另外把收到的历史全存下来。
+ *
+ * @remarks
+ * IMPORTANT: ★脚本长度本身就是一条断言★ —— 跑完还问就抛错，
+ * 所以「最多问 N 次」不用写 expect，摆好脚本就有了。
+ */
 export class FakeLlm implements LlmPort {
   /**
    * 每次请求收到的全量历史，按顺序。

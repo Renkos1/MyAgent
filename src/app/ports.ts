@@ -142,6 +142,14 @@ export type ToolOutcome =
       readonly cause: "io-error" | "timeout" | "unknown";
     };
 
+/**
+ * 跑一个工具，把结果压成 {@link ToolOutcome}。
+ *
+ * @remarks
+ * 和 {@link LlmPort} 同一条规矩：端口无状态，也★不抛异常★ ——
+ * 失败也是返回值。并发上限、预算、重试都在用例层，适配器不许自己决定。
+ * @see docs/decisions/0007-port-shapes.md
+ */
 export interface ToolPort {
   run(call: ToolCall, opts?: CallOptions): Promise<ToolOutcome>;
 }

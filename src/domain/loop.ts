@@ -57,6 +57,13 @@ export type InsufficientBudget = {
   readonly max: number;
 };
 
+/**
+ * 四条上限。★都是"最多多少"，不是"已经用了多少"★ —— 后者在 LoopBudget 里。
+ *
+ * @remarks
+ * 合法性由 createLoopBudget 校验，之后不再复查。
+ * @see docs/decisions/0002-budget-vs-limit.md  为什么上限和用量是两个类型
+ */
 export type LoopLimits = {
   readonly maxModelCalls: number;
   readonly maxToolRuns: number;

@@ -8,10 +8,12 @@ export type Result<T, E> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: E };
 
+/** 包一个成功值。窄到 `Result<T, never>`，让调用方那边的 E 自己推断。 */
 export function ok<T>(value: T): Result<T, never> {
   return { ok: true, value };
 }
 
+/** 包一个失败值。窄到 `Result<never, E>`，理由同 {@link ok}。 */
 export function err<E>(error: E): Result<never, E> {
   return { ok: false, error };
 }

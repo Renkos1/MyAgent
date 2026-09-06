@@ -38,6 +38,14 @@ export type InputItem =
       readonly keptBytes: number;
     };
 
+/**
+ * 输入没能被接纳的原因。
+ *
+ * @remarks
+ * 前三个是 input.ts 自己的判断，后两个是「组合的成本」——
+ * 一旦调用 loop.ts，loop.ts 能返回的错误就并进了这里。
+ * NOTE: 每个 kind 都带 index，但★不带那段文本★ —— 它来自模型/用户。
+ */
 export type InputError =
   /** 输入本身不是良构 Unicode —— 上游多半已经按下标截断过一次。 */
   | { readonly kind: "ill-formed"; readonly index: number }
@@ -70,11 +78,26 @@ export type InputError =
   | InsufficientBudget
   | InvalidCount;
 
+/** admitInput 成功时的产物：扣过账的预算，加上每段文本的处理结果。 */
 export type Admitted = {
   readonly state: LoopBudget;
   readonly items: readonly InputItem[];
 };
 
+/**
+ * 校验、测量、按模式截断若干段文本，并把总字节数记进预算。
+ *
+ * @remarks
+ * 纯函数：不改入参，返回新的 {@link LoopBudget}。
+ * 顺序是死的 —— ★良构检查在测量之前★（不良构的文本量出来的字节数是错的）。
+ * 单段上限 reject 就报错、truncate 就切；总量上限一律报错，切不了。
+ *
+ * @param state - 当前预算，只读
+ * @param texts - 待接纳的文本，按顺序；报错时用 index 指回来
+ * @param mode - 单段超限时 reject 还是 truncate
+ * @returns 成功是 {@link Admitted}，失败是 {@link InputError}
+ * @see docs/decisions/0009-size-and-truncation.md
+ */
 export function admitInput(
   state: LoopBudget,
   texts: readonly string[],

@@ -17,11 +17,16 @@
 /** 品牌符号。只声明不定义 —— 运行时不存在。 */
 declare const unitBrand: unique symbol;
 
+/** UTF-8 字节数。★判上限只用这个单位★，别的都只用来看。 */
 export type Utf8Bytes = number & { readonly [unitBrand]: "utf-8" };
+/** UTF-16 码元数，也就是 `String.length`。SAFETY: ★不能拿它当切点★。 */
 export type Utf16Units = number & { readonly [unitBrand]: "utf-16" };
+/** 码点数（`[...text].length`）。emoji 的组合序列会被数成多个。 */
 export type CodePoints = number & { readonly [unitBrand]: "code-point" };
+/** 字素簇数 —— 人眼看到的"一个字"。最贵，靠 Intl.Segmenter 算。 */
 export type Graphemes = number & { readonly [unitBrand]: "grapheme" };
 
+/** measure 认的四种单位名。传哪个，返回类型就是哪个品牌。 */
 export type UnitName = "utf-8" | "utf-16" | "code-point" | "grapheme";
 
 /**
