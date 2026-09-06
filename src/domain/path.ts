@@ -16,6 +16,9 @@ export type PathError =
   | { readonly kind: "escapes-root" }
   | { readonly kind: "nul-byte" };
 
+/** NUL 字节。fs 遇到它会抛 ERR_INVALID_ARG_VALUE，在这一层先拒掉。 */
+const NUL = "\u0000";
+
 /**
  * 把模型/用户给的一个路径解析成仓库内的绝对路径；越界一律拒绝。
  *
@@ -30,11 +33,8 @@ export type PathError =
  * @param candidate - 待校验的路径（仓库相对）
  * @returns 成功时是仓库内的绝对路径；失败时 {@link PathError}
  *          ——  NOTE: 它只带 kind，不带那个路径，因为那个值来自模型/用户
- * @see docs/decisions/0008-path-resolution.md  六个决定的候选、判据、代价
+ * @see docs/decisions/0008-path-resolution.md  八个决定的候选、判据、代价
  */
-/** NUL 字节。fs 遇到它会抛 ERR_INVALID_ARG_VALUE，在这一层先拒掉。 */
-const NUL = "\u0000";
-
 export function resolveInsideRoot(
   root: string,
   candidate: string,
