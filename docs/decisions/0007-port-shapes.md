@@ -1,7 +1,7 @@
 # 0007 · 端口的形状：LlmPort / ToolPort 的九个决定
 
 > 内容原来堆在 `src/app/ports.ts` 的文件头（117 行注释 / 215 行文件）。
-> 2026-09 按 `ts-modern-train/docs/engineering/21-comment-conventions.md` 外移。
+> 2026-09 按 `ts-modern-train/docs/engineering/26-comment-conventions.md` 外移。
 
 ## 背景
 

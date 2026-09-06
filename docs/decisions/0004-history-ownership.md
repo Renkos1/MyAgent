@@ -62,4 +62,4 @@ provider 的 HTTP API 无状态，每次要发全量
 ## 相关
 
 - `0003-validated-run-config.md` —— 同一批改动里的另一个决定
-- `ts-modern-train/docs/engineering/21-comment-conventions.md` —— TRAP: 标签的用法
+- `ts-modern-train/docs/engineering/26-comment-conventions.md` —— TRAP: 标签的用法

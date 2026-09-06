@@ -1,7 +1,7 @@
 # 0006 · 一轮结束时的判定：TurnOutcome / Decision 的形状
 
 > 内容原来堆在 `src/domain/turn.ts` 的文件头（105 行注释 / 159 行文件）。
-> 2026-09 按 `ts-modern-train/docs/engineering/21-comment-conventions.md` 外移。
+> 2026-09 按 `ts-modern-train/docs/engineering/26-comment-conventions.md` 外移。
 > **决定是快照，不该跟着代码一起被改。**
 
 ## 背景

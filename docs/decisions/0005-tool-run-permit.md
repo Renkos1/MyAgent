@@ -84,5 +84,5 @@ export function reserveToolRuns(state, count): Result<ToolRunPermit, …>
 ## 相关
 
 - `0003-validated-run-config.md` —— 同一个手法（品牌类型）的另一次使用
-- `ts-modern-train/docs/engineering/21-comment-conventions.md` —— 坑 1 讲的就是这次的注释说谎
+- `ts-modern-train/docs/engineering/26-comment-conventions.md` —— 坑 1 讲的就是这次的注释说谎
 - `ts-modern-train/docs/language/11-structural-and-branded-types.md` —— 机制

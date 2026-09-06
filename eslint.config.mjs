@@ -28,7 +28,7 @@ export default defineConfig([
     // @returns / @see）写在 const NUL 上面，中间夹了一个声明 ——
     // ★TypeScript 把归属判给了谁都不是，编辑器里悬停显示为空★。
     // tsc / prettier / 测试都不看注释，四道门全绿。见 ts-modern-train 的
-    // docs/engineering/21-comment-conventions.md 坑 5。
+    // docs/engineering/26-comment-conventions.md 坑 5。
     //
     // 只管 src/ 的导出：测试文件里的导出是给测试自己用的，不是对外契约。
     files: ["src/**/*.ts"],

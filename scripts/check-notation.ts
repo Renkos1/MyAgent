@@ -2,7 +2,7 @@
 /**
  * 记号检查器 —— 让「代码里不用自造的强调符号」变成一道会红的门禁。
  *
- * 背景见 ts-modern-train 的 docs/engineering/21-comment-conventions.md §②：
+ * 背景见 ts-modern-train 的 docs/engineering/26-comment-conventions.md §②：
  * 强调和警示用约定标签（NOTE / IMPORTANT / SAFETY / TRAP / TODO），
  * 因为它们可 grep、可门禁、别人认识、不破坏等宽对齐。
  *
