@@ -38,7 +38,7 @@ function freshState(limits: Limits): LoopBudget {
   return r.value;
 }
 
-/** 执行一步。★失败时返回原状态★ —— 转换函数失败不消耗任何额度。 */
+/** 执行一步。失败时返回原状态 —— 转换函数失败不消耗任何额度。 */
 function apply(state: LoopBudget, o: Op): LoopBudget {
   const r =
     o.t === "model"
@@ -61,8 +61,8 @@ function trace(state: LoopBudget, ops: readonly Op[]): LoopBudget[] {
 }
 
 describe("预算状态机的性质", () => {
-  // ★这一条是整个模块存在的理由★：无论怎么操作，都不可能越界。
-  it("★任意操作序列，三个计数器永不超过各自上限★", () => {
+  // IMPORTANT: 这一条是整个模块存在的理由 —— 无论怎么操作，都不可能越界。
+  it("任意操作序列，三个计数器永不超过各自上限", () => {
     fc.assert(
       fc.property(anyLimits, fc.array(anyOp, { maxLength: 30 }), (lim, ops) => {
         const over = trace(freshState(lim), ops).filter(
@@ -77,7 +77,7 @@ describe("预算状态机的性质", () => {
     );
   });
 
-  it("★单调不减★：计数器只会涨，不会退", () => {
+  it("单调不减：计数器只会涨，不会退", () => {
     fc.assert(
       fc.property(anyLimits, fc.array(anyOp, { maxLength: 30 }), (lim, ops) => {
         const backwards: string[] = [];
@@ -99,7 +99,7 @@ describe("预算状态机的性质", () => {
     );
   });
 
-  it("★一次操作只动一个计数器★：另外两个纹丝不动", () => {
+  it("一次操作只动一个计数器：另外两个纹丝不动", () => {
     fc.assert(
       fc.property(anyLimits, anyOp, (lim, o) => {
         const s = freshState(lim);
@@ -115,7 +115,7 @@ describe("预算状态机的性质", () => {
     );
   });
 
-  it("★上限本身永远不被改动★", () => {
+  it("上限本身永远不被改动", () => {
     fc.assert(
       fc.property(anyLimits, fc.array(anyOp, { maxLength: 30 }), (lim, ops) => {
         const seen = trace(freshState(lim), ops);
@@ -125,7 +125,7 @@ describe("预算状态机的性质", () => {
     );
   });
 
-  it("★纯函数★：转换不改动传进去的状态", () => {
+  it("纯函数：转换不改动传进去的状态", () => {
     fc.assert(
       fc.property(anyLimits, anyOp, (lim, o) => {
         const s = freshState(lim);
@@ -139,9 +139,9 @@ describe("预算状态机的性质", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// ★一条"不成立"的性质★ —— 它不成立，正是契约⑥（原子性）的直接后果。
-// 写下"这条不成立、因为契约第几条"，和写下成立的性质一样有价值。
-describe("★结合律：额度够时成立，不够时不成立★", () => {
+// 一条"不成立"的性质 —— 它不成立，正是原子性（ADR 0010 §⑥）的直接后果。
+// 写下"这条不成立、因为哪条决定"，和写下成立的性质一样有价值。
+describe("结合律：额度够时成立，不够时不成立", () => {
   const nTools = fc.integer({ min: 1, max: 6 });
 
   /** 逐个记 n 次，每次一个。 */
@@ -168,7 +168,7 @@ describe("★结合律：额度够时成立，不够时不成立★", () => {
     );
   });
 
-  it("★额度不足时：两者不等价★ —— 批量一个不跑，逐个会跑满", () => {
+  it("额度不足时：两者不等价 —— 批量一个不跑，逐个会跑满", () => {
     fc.assert(
       fc.property(anyLimits, nTools, (lim, n) => {
         const s = freshState(lim);

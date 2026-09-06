@@ -15,7 +15,7 @@ import type { Result } from "../../src/domain/result.ts";
 import { ok } from "../../src/domain/result.ts";
 
 // ── 测试脚手架 ────────────────────────────────────────────────
-// ★脚手架里可以有分支，断言里不能。★
+// IMPORTANT: 脚手架里可以有分支，断言里不能。
 // 分支写在这里，每个 it 的 body 就能保持「一句整体断言」。
 
 /** 本组测试不关心字节上限，给一个够大的固定值，让它不参与鉴别。 */
@@ -108,10 +108,10 @@ describe("createLoopBudget", () => {
         value: Infinity,
       },
       { why: "NaN", model: NaN, tool: 1, limit: "model-calls", value: NaN },
-      // ★这条是这张表的核心★：isInteger 放行，但 2**53 + 1 === 2**53，
+      // TRAP: isInteger 放行，但 2**53 + 1 === 2**53，
       // 计数器加不上去 —— 循环永远到不了上限。只有 isSafeInteger 挡得住。
       {
-        why: "★超出安全整数★",
+        why: "超出安全整数",
         model: 2 ** 53,
         tool: 1,
         limit: "model-calls",
@@ -134,7 +134,7 @@ describe("createLoopBudget", () => {
         value: 2.5,
       },
 
-      // 契约③：两个都非法时只报第一个
+      // 上限非法只报第一个（ADR 0010 §③）
       {
         why: "单段字节上限为 0",
         model: 1,
@@ -151,9 +151,9 @@ describe("createLoopBudget", () => {
         limit: "input-bytes-total",
         value: 1.5,
       },
-      // 契约③：多个都非法时只报第一个，顺序是 model → tool → perItem → total
+      // 多个都非法也只报第一个，顺序是 model → tool → perItem → total（ADR 0010 §③）
       {
-        why: "★四个都非法，只报 model-calls★",
+        why: "四个都非法，只报 model-calls",
         model: 0,
         tool: 0,
         perItem: 0,
@@ -205,7 +205,7 @@ describe("createLoopBudget", () => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// ★这一组是整个模块存在的理由★：到 max 就停。
+// IMPORTANT: 这一组是整个模块存在的理由 —— 到 max 就停。
 // 表格是二维的 —— max 一列、调用次数一列，两列都在变。
 describe("recordModelCall", () => {
   const TOOL_MAX = 9; // 固定，用来证明模型计数不碰工具计数
@@ -235,7 +235,7 @@ describe("recordModelCall", () => {
   });
 
   describe("超出额度", () => {
-    // ★这三行就是「max = 1 / 2 / 3 各允许几轮」的答案★
+    // 这三行就是「max = 1 / 2 / 3 各允许几轮」的答案
     // （max = 0 不在表里，因为它根本构造不出来）
     it.each<{ max: number; times: number }>([
       { max: 1, times: 2 },
@@ -263,7 +263,7 @@ describe("recordToolRuns", () => {
   describe("额度内", () => {
     it.each<{ why: string; max: number; batches: number[]; total: number }>([
       { why: "一次响应要 3 个工具", max: 5, batches: [3], total: 3 },
-      { why: "★正好用完★", max: 5, batches: [3, 2], total: 5 },
+      { why: "正好用完", max: 5, batches: [3, 2], total: 5 },
       { why: "一次就用完", max: 3, batches: [3], total: 3 },
       { why: "每次一个，用满", max: 5, batches: [1, 1, 1, 1, 1], total: 5 },
     ])(
@@ -290,10 +290,10 @@ describe("recordToolRuns", () => {
     it.each<{ why: string; max: number; batches: number[]; used: number }>([
       { why: "第二批超了", max: 5, batches: [3, 3], used: 3 },
       { why: "用满之后再来一个", max: 5, batches: [3, 2, 1], used: 5 },
-      // ★契约⑥的原子性★：额度剩 2，来了 3 个 —— 一个都不跑，used 停在 0
-      { why: "★原子性：额度不够就一个都不跑★", max: 2, batches: [3], used: 0 },
+      // IMPORTANT: 原子性（ADR 0010 §⑥）—— 额度剩 2 来了 3 个，一个都不跑，used 停在 0
+      { why: "原子性：额度不够就一个都不跑", max: 2, batches: [3], used: 0 },
       {
-        why: "★原子性：剩 1 个额度，来 2 个★",
+        why: "原子性：剩 1 个额度，来 2 个",
         max: 3,
         batches: [2, 2],
         used: 2,
@@ -332,10 +332,10 @@ describe("recordInputBytes", () => {
     it.each<{ why: string; total: number; batches: number[]; used: number }>([
       { why: "一段", total: 100, batches: [10], used: 10 },
       { why: "两段累加", total: 100, batches: [10, 20], used: 30 },
-      { why: "★正好用完★", total: 30, batches: [10, 20], used: 30 },
-      // ★这一条和 recordToolRuns 相反★：那边 count=0 非法（一次响应要 0 个
+      { why: "正好用完", total: 30, batches: [10, 20], used: 30 },
+      // 这一条和 recordToolRuns 相反：那边 count=0 非法（一次响应要 0 个
       // 工具说明上游出错了），这边 bytes=0 合法 —— 0 字节的文件真实存在。
-      { why: "★空文件：0 字节合法★", total: 100, batches: [0], used: 0 },
+      { why: "空文件：0 字节合法", total: 100, batches: [0], used: 0 },
       { why: "多段 0 字节", total: 100, batches: [0, 0, 5], used: 5 },
     ])(
       "$why｜上限 $total，批次 $batches → $used",
@@ -362,7 +362,7 @@ describe("recordInputBytes", () => {
     it.each<{ why: string; total: number; batches: number[]; used: number }>([
       { why: "第二段超了", total: 30, batches: [10, 21], used: 10 },
       {
-        why: "★原子性：第一段就超，一个字节不记★",
+        why: "原子性：第一段就超，一个字节不记",
         total: 10,
         batches: [11],
         used: 0,
@@ -400,7 +400,7 @@ describe("recordInputBytes", () => {
 // ══════════════════════════════════════════════════════════════
 // 不变量：不是「某个输入 → 某个输出」，是「对所有输入都成立的性质」。
 describe("不变量", () => {
-  it("★纯函数★：调用之后，传进去的那个 state 一模一样", () => {
+  it("纯函数：调用之后，传进去的那个 state 一模一样", () => {
     const before = stateOf(3, 3);
     const snapshot = structuredClone(before);
 
@@ -410,7 +410,7 @@ describe("不变量", () => {
     expect(before).toEqual(snapshot);
   });
 
-  it("★两个计数器互不影响★", () => {
+  it("两个计数器互不影响", () => {
     const s0 = stateOf(3, 3);
     const afterModel = recordModelCall(s0);
     expect(afterModel).toEqual({
@@ -419,7 +419,7 @@ describe("不变量", () => {
     });
   });
 
-  it("★撞上限不消耗状态★：模型额度满了，工具额度还能用", () => {
+  it("撞上限不消耗状态：模型额度满了，工具额度还能用", () => {
     const s = stateOf(1, 3);
     const used = recordModelCall(s);
     expect(used.ok).toBe(true);

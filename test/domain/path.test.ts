@@ -1,3 +1,4 @@
+import { canChdir } from "../helpers/env.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -46,9 +47,9 @@ describe("resolveInsideRoot", () => {
       { why: "绕出去又绕回来", candidate: "../repo/a.md", value: "/repo/a.md" },
       { why: "root 自己（.）", candidate: ".", value: "/repo" },
       { why: "root 自己（抵消掉）", candidate: "docs/..", value: "/repo" },
-      { why: "尾斜杠保留（契约③）", candidate: "docs/", value: "/repo/docs/" },
+      { why: "尾斜杠保留", candidate: "docs/", value: "/repo/docs/" },
       {
-        why: "反斜杠当分隔符（契约④）",
+        why: "反斜杠当分隔符",
         candidate: "docs\\a.md",
         value: "/repo/docs/a.md",
       },
@@ -71,12 +72,12 @@ describe("resolveInsideRoot", () => {
       { why: "空串", candidate: "", kind: "empty" },
 
       {
-        why: "绝对路径，指向外部（契约⑥）",
+        why: "绝对路径，指向外部",
         candidate: "/etc/passwd",
         kind: "absolute",
       },
       {
-        why: "绝对路径，即使指向 root 内（契约⑥）",
+        why: "绝对路径，即使指向 root 内也拒绝",
         candidate: "/repo/a.md",
         kind: "absolute",
       },
@@ -89,25 +90,25 @@ describe("resolveInsideRoot", () => {
       },
       { why: "只有 ..", candidate: "..", kind: "escapes-root" },
       {
-        why: "反斜杠形式的穿越（契约④的后果）",
+        why: "反斜杠形式的穿越",
         candidate: "..\\..\\secret",
         kind: "escapes-root",
       },
 
-      // ★这三条是这份测试的核心★
+      // IMPORTANT: 这三条承载了对付 startsWith 漏洞的全部鉴别力
       // 它们解析后都以字符串 "/repo" 开头，但都在 root 外面。
       {
-        why: "★前缀陷阱★ 兄弟目录",
+        why: "前缀陷阱 兄弟目录",
         candidate: "../repo-evil/secret",
         kind: "escapes-root",
       },
       {
-        why: "★前缀陷阱★ 只多一个字符",
+        why: "前缀陷阱 只多一个字符",
         candidate: "../repoX",
         kind: "escapes-root",
       },
       {
-        why: "★前缀陷阱★ 带点后缀",
+        why: "前缀陷阱 带点后缀",
         candidate: "../repo.bak/x",
         kind: "escapes-root",
       },
@@ -132,7 +133,7 @@ describe("resolveInsideRoot", () => {
       expect(r.value.startsWith("/")).toBe(true);
     });
 
-    it("★不读 process.cwd()★：换掉 cwd 结果不变", () => {
+    it.skipIf(!canChdir)("不读 process.cwd()：换掉 cwd 结果不变", () => {
       const before = resolveInsideRoot(ROOT, "docs/a.md");
       const cwd = process.cwd();
       const tempDir = mkdtempSync(path.join(tmpdir(), "resolveInsideRoot-"));

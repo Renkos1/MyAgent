@@ -40,7 +40,7 @@ describe("admitInput", () => {
       bytes: number[];
     }>([
       {
-        why: "★空文件是合法内容★",
+        why: "空文件是合法内容",
         texts: [""],
         perItem: 10,
         total: 10,
@@ -61,14 +61,14 @@ describe("admitInput", () => {
         bytes: [6],
       },
       {
-        why: "★正好等于 perItem★",
+        why: "正好等于 perItem",
         texts: ["hello"],
         perItem: 5,
         total: 99,
         bytes: [5],
       },
       {
-        why: "★两段之和正好等于 total★",
+        why: "两段之和正好等于 total",
         texts: ["hello", "你好"],
         perItem: 10,
         total: 11,
@@ -119,7 +119,7 @@ describe("admitInput", () => {
         bytes: 6,
       },
       {
-        why: "★报的是出问题那一段的下标★",
+        why: "报的是出问题那一段的下标",
         texts: ["ok", "你好世界"],
         perItem: 5,
         index: 1,
@@ -155,7 +155,7 @@ describe("admitInput", () => {
         keptBytes: 3,
       },
       {
-        why: "★退到最近的换行★",
+        why: "退到最近的换行",
         texts: ["abc\ndef\nghi"],
         perItem: 10,
         kept: "abc\ndef\n",
@@ -163,7 +163,7 @@ describe("admitInput", () => {
         keptBytes: 8,
       },
       {
-        why: "★绝不切碎 emoji★",
+        why: "绝不切碎 emoji",
         texts: ["👍👍"],
         perItem: 5,
         kept: "👍",
@@ -207,7 +207,7 @@ describe("admitInput", () => {
         originalBytes: 6,
       },
       {
-        why: "★ZWJ 家庭差一个字节，整个丢光★",
+        why: "ZWJ 家庭差一个字节，整个丢光",
         texts: ["👨‍👩‍👧"],
         perItem: 17,
         index: 0,
@@ -229,12 +229,12 @@ describe("admitInput", () => {
   });
 
   // ── 良构检查 ──────────────────────────────────────────────
-  describe("★输入不是良构 Unicode★（上游多半已按下标截断过一次）", () => {
+  describe("输入不是良构 Unicode（上游多半已按下标截断过一次）", () => {
     it.each<{ why: string; texts: string[]; index: number }>([
       { why: "半个代理对", texts: [LONE_SURROGATE], index: 0 },
       { why: "夹在中间", texts: ["ok", `a${LONE_SURROGATE}b`], index: 1 },
       {
-        why: "★良构检查在测量之前★：即使它也超 perItem，也报 ill-formed",
+        why: "良构检查在测量之前：即使它也超 perItem，也报 ill-formed",
         texts: [`${LONE_SURROGATE}xxxxxxxx`],
         index: 0,
       },
@@ -251,7 +251,7 @@ describe("admitInput", () => {
     it.each<{ why: string; texts: string[]; total: number; used: number }>([
       { why: "两段加起来超", texts: ["hello", "hello"], total: 8, used: 0 },
       {
-        why: "★原子性：used 是 0，一个字节都没扣★",
+        why: "原子性：used 是 0，一个字节都没扣",
         texts: ["hello"],
         total: 4,
         used: 0,
@@ -271,7 +271,7 @@ describe("admitInput", () => {
 
   // ── 不变量 ────────────────────────────────────────────────
   describe("不变量", () => {
-    it("★纯函数★：失败之后，传进去的 state 一模一样", () => {
+    it("纯函数：失败之后，传进去的 state 一模一样", () => {
       const before = stateOf(4, 8);
       const snapshot = structuredClone(before);
       admitInput(before, ["你好世界"], "reject");
@@ -280,14 +280,14 @@ describe("admitInput", () => {
       expect(before).toEqual(snapshot);
     });
 
-    it("★成功之后原 state 也没被改★，新状态是另一个对象", () => {
+    it("成功之后原 state 也没被改，新状态是另一个对象", () => {
       const before = stateOf(99, 99);
       const r = admitInput(before, ["hello"], "reject");
       expect(before.inputBytes).toBe(0);
       expect(r.ok && r.value.state.inputBytes).toBe(5);
     });
 
-    it("★连续两次调用会累加★", () => {
+    it("连续两次调用会累加", () => {
       const first = admitInput(stateOf(99, 99), ["hello"], "reject");
       expect(first.ok).toBe(true);
       if (!first.ok) return;
@@ -305,7 +305,7 @@ describe("admitInput", () => {
       });
     });
 
-    it("★truncate 模式下，被接纳的文本永远是良构的★", () => {
+    it("truncate 模式下，被接纳的文本永远是良构的", () => {
       const r = admitInput(
         stateOf(7, 999),
         ["报告：👨‍👩‍👧一家人", "你好世界"],
