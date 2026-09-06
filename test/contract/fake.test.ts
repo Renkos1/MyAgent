@@ -8,12 +8,18 @@
  * 阶段 4 加真适配器时，这个文件旁边多一个 anthropic.test.ts，
  * 导入的是同一份套件 —— 那时候 cannotStage 里的名字就是能力矩阵。
  */
-import type { ToolCall, ToolOutcome, ToolPort } from "../../src/app/ports.ts";
+import type {
+  CallOptions,
+  ToolCall,
+  ToolOutcome,
+  ToolPort,
+} from "../../src/app/ports.ts";
 import { FakeLlm } from "../../src/infra/fake/llm.ts";
 import type { Scripted } from "../../src/infra/fake/llm.ts";
 import { FakeTools } from "../../src/infra/fake/tools.ts";
 import { llmPortContract } from "./llmPort.contract.ts";
 import { toolPortContract } from "./toolPort.contract.ts";
+import type { ToolCase } from "./toolPort.contract.ts";
 import type { Scenario } from "./scenarios.ts";
 
 /**
@@ -91,15 +97,16 @@ llmPortContract({
   },
 });
 
-const CALL: Readonly<Record<ToolOutcome["kind"], ToolCall>> = {
+const CALL: Readonly<Record<ToolCase, ToolCall>> = {
   ok: { name: "read_file", id: "ok", path: "docs/README.md" },
   denied: { name: "read_file", id: "denied", path: "../../etc/passwd" },
   "not-found": { name: "read_file", id: "missing", path: "docs/nope.md" },
   "too-large": { name: "read_file", id: "big", path: "docs/huge.md" },
   failed: { name: "search", id: "boom", query: "预算" },
-  // TRAP: 故意用 ok 那一格的 call —— 表里 "ok" 是有答案的，
+  // TRAP: 两格 aborted 都故意用 ok 那一格的 call —— 表里 "ok" 是有答案的，
   //       实现必须让 signal 压过它，才算真的看了 signal。
-  aborted: { name: "read_file", id: "ok", path: "docs/README.md" },
+  "aborted-before": { name: "read_file", id: "ok", path: "docs/README.md" },
+  "aborted-during": { name: "read_file", id: "ok", path: "docs/README.md" },
 };
 
 const TABLE: Readonly<Record<string, ToolOutcome>> = {
@@ -113,14 +120,55 @@ const TABLE: Readonly<Record<string, ToolOutcome>> = {
 
 const tools: ToolPort = new FakeTools(TABLE, 0);
 
+/**
+ * 把「跑到一半被叫停」摆出来。
+ *
+ * IMPORTANT: 不用定时器也不用「第 N 个微任务」去猜时机 —— 那种摆法
+ * 依赖 run 内部 await 了几次，改一下 hold 就静默失效。
+ * 这里的构造是确定的：run 同步跑到第一个 await（第一道检查已经过了）
+ * 并把 promise 交回来，我们**紧接着**按下取消，剩下的 hold 里第二道检查
+ * 必然看见 aborted。
+ */
+class AbortMidFlight implements ToolPort {
+  private readonly inner: ToolPort;
+  private readonly ac: AbortController;
+
+  constructor(inner: ToolPort, ac: AbortController) {
+    this.inner = inner;
+    this.ac = ac;
+  }
+
+  run(call: ToolCall, opts?: CallOptions): Promise<ToolOutcome> {
+    const p = this.inner.run(call, opts);
+    this.ac.abort();
+    return p;
+  }
+}
+
+/** hold > 0 才有「一半」可言：hold=0 的 FakeTools 摆不出这一格。 */
+function midFlight(): { port: ToolPort; opts: CallOptions } {
+  const ac = new AbortController();
+  return {
+    port: new AbortMidFlight(new FakeTools(TABLE, 3), ac),
+    opts: { signal: ac.signal },
+  };
+}
+
 toolPortContract({
   name: "FakeTools",
   cannotStage: [],
-  stage: (kind) => ({
-    port: tools,
-    call: CALL[kind],
-    opts: kind === "aborted" ? { signal: AbortSignal.abort() } : undefined,
-  }),
+  stage: (kind) => {
+    if (kind === "aborted-during") {
+      const { port, opts } = midFlight();
+      return { port, call: CALL[kind], opts };
+    }
+    return {
+      port: tools,
+      call: CALL[kind],
+      opts:
+        kind === "aborted-before" ? { signal: AbortSignal.abort() } : undefined,
+    };
+  },
   surprise: {
     port: tools,
     call: { name: "list_files", id: "从来没见过的 id", dir: "docs" },

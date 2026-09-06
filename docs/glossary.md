@@ -37,6 +37,7 @@ budget    3 处   turn.ts 的 "budget-exhausted"
 | 判分点   | `Check`        | 一道题里的一条★程序可判★的要求      | 不是「断言」（那是测试里的）  | `Check` / `judge` / `describeCheck`                     |
 | 记录     | `Transcript`   | 跑一道题留下的★可观测面★            | ⛔ 不是「日志」，不是「事件」 | `Transcript` / `toTranscript`                           |
 | 被测对象 | `subject`      | 被契约或 eval 拿来考的那个实现      | 不是「模型」（模型是一种）    | `Subject` / `LlmSubject`                                |
+| 副作用   | `sideEffect`   | 取消时★对面做过没有★                | ⛔ `unknown` 不是「发生了」   | `ToolOutcome` 的 aborted 那一格                         |
 
 ## 允许的同义词（避免检查器误伤）
 

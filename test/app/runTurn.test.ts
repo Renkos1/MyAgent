@@ -849,9 +849,16 @@ describe("工具结果：五种非 ok 的 outcome 各自的文本", () => {
     },
     {
       // 取消不是失败，所以措辞里没有"失败"两个字（ADR 0014 §①）
-      why: "aborted 说的是取消，不是失败",
-      outcome: { kind: "aborted" },
-      text: "[工具已取消]",
+      why: "aborted(none) 说的是取消，不是失败",
+      outcome: { kind: "aborted", sideEffect: "none" },
+      text: "[工具已取消，没有执行]",
+    },
+    {
+      // IMPORTANT: 这两句必须不一样。喂回模型的文本是它唯一的信息来源 ——
+      //            两种取消说成同一句话，模型就会把「不知道」当成「没发生」（ADR 0015 §③）
+      why: "aborted(unknown) 要说出「不知道」，不能和 none 同一句",
+      outcome: { kind: "aborted", sideEffect: "unknown" },
+      text: "[工具已取消，是否已执行未知]",
     },
   ])("$why", async ({ outcome, text }) => {
     const llm = new FakeLlm([

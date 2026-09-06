@@ -17,7 +17,7 @@
  * 用法   node scripts/eval.ts [题库路径] [成绩单目录]
  *        默认 eval/cases.json 和 eval/results
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseCases } from "../src/eval/parse.ts";
 import { runEval } from "../src/eval/run.ts";
@@ -163,7 +163,35 @@ const report = await runEval(
 // TRAP: ISO 时间戳里的冒号在 Windows 上是非法文件名字符。同 ADR 0012 的录音带文件名。
 const stamp = report.at.replaceAll(":", "-").replace(/\.\d+Z$/, "Z");
 mkdirSync(outDir, { recursive: true });
-const file = join(outDir, `${stamp}.json`);
+
+/**
+ * 找一个还没被占的文件名。
+ *
+ * IMPORTANT: 文件名精确到秒，同一秒跑两次就会撞名 —— 而 writeFileSync 覆盖时
+ * 一声不吭。成绩单的全部价值是**趋势**（ADR 0013 §③），覆盖 = 悄悄删掉一个数据点。
+ * 和 ADR 0012 §③ 拒绝同名录音带同一条判据：写盘前先看有没有人在那儿。
+ *
+ * NOTE: 这里不像录音带那样直接抛 —— 跑一次 eval 是要花钱的，
+ * 为了一个文件名把已经拿到的分数丢掉不划算。所以是换名字，并且**说出来**。
+ *
+ * @param base - 不带序号的名字
+ * @returns 确实没被占的完整路径
+ */
+function freeName(base: string): string {
+  const first = join(outDir, `${base}.json`);
+  if (!existsSync(first)) return first;
+  for (let n = 2; ; n++) {
+    const next = join(outDir, `${base}-${String(n)}.json`);
+    if (!existsSync(next)) {
+      console.log(
+        `注意    ${base}.json 已存在，这一份写成 ${base}-${String(n)}.json`,
+      );
+      return next;
+    }
+  }
+}
+
+const file = freeName(stamp);
 writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
 console.log(`题库    ${casesPath}（${String(report.total)} 道）`);

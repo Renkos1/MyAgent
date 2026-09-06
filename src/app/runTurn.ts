@@ -180,8 +180,12 @@ function renderOutcome(outcome: ToolOutcome): string {
     case "failed":
       return `[工具失败：${outcome.cause}]`;
     // NOTE: 措辞和上面几支不同是有意的 —— 取消不是失败（ADR 0014 §①）。
+    //       两格也必须说成两句：模型看到「没有执行」可以放心重来，
+    //       看到「是否已执行未知」就不该假设文件没被动过（ADR 0015 §③）。
     case "aborted":
-      return "[工具已取消]";
+      return outcome.sideEffect === "none"
+        ? "[工具已取消，没有执行]"
+        : "[工具已取消，是否已执行未知]";
   }
 }
 

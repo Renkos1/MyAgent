@@ -66,7 +66,11 @@ describe("toTranscript · toolsUsed", () => {
     const call = { name: "search", id: "a", query: "q" } as const;
     const events: readonly RunEvent[] = [
       { kind: "tool-started", call },
-      { kind: "tool-finished", call, outcome: { kind: "aborted" } },
+      {
+        kind: "tool-finished",
+        call,
+        outcome: { kind: "aborted", sideEffect: "none" },
+      },
     ];
     expect(toTranscript(events, DONE).toolsUsed).toEqual(["search"]);
   });

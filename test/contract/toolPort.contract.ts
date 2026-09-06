@@ -15,20 +15,55 @@ import type {
 } from "../../src/app/ports.ts";
 
 /**
- * 五种结果各自对应外面的什么事。
+ * 契约要摆的格子。
  *
- * NOTE: 键是 ToolOutcome["kind"]，少一格 tsc 就红 —— 和场景表同一个手法。
+ * IMPORTANT: 它**不等于** `ToolOutcome["kind"]` —— aborted 那一格要拆成两个场景。
+ * 理由和 LlmPort 那边 `aborted-before-send` / `aborted-mid-flight` 完全一样：
+ * 场景集是对**外面的世界**建模，端口的 kind 是压平之后的结果，
+ * 一个 kind 底下可能藏着两种外部事实（ADR 0015 §④）。
  */
-export const TOOL_SCENARIOS: Readonly<Record<ToolOutcome["kind"], string>> = {
+export type ToolCase =
+  Exclude<ToolOutcome["kind"], "aborted"> | "aborted-before" | "aborted-during";
+
+/** 每个格子对应外面的什么事。少一格 tsc 就红 —— 和场景表同一个手法。 */
+export const TOOL_SCENARIOS: Readonly<Record<ToolCase, string>> = {
   ok: "文件读到了",
   denied: "路径校验拒绝（CWE-22 那一类）",
   "not-found": "目标不存在",
   "too-large": "超过单次读取的字节上限",
   failed: "IO 出错 / 超时 / 说不上来",
-  aborted: "我们自己叫停（ADR 0014 §①：取消不是失败）",
+  "aborted-before": "还没开跑就被叫停（ADR 0014 §①：取消不是失败）",
+  "aborted-during": "跑到一半被叫停 —— 副作用发生没有，我们不知道",
 };
 
-const KINDS = Object.keys(TOOL_SCENARIOS) as ToolOutcome["kind"][];
+const KINDS = Object.keys(TOOL_SCENARIOS) as ToolCase[];
+
+/**
+ * 契约只比这两样。
+ *
+ * NOTE: content / bytes / reason 是各实现自己的事，契约不碰 ——
+ * 碰了就退化成实现测试（engineering/25 坑⑧）。
+ */
+type Shape = { readonly kind: string; readonly sideEffect: string | null };
+
+/** 投影成好整对象比较的形状。 */
+function shapeOf(o: ToolOutcome): Shape {
+  return {
+    kind: o.kind,
+    sideEffect: o.kind === "aborted" ? o.sideEffect : null,
+  };
+}
+
+/** 每个格子该落成什么。IMPORTANT: 两格 aborted 的 sideEffect 必须不同。 */
+const EXPECTED: Readonly<Record<ToolCase, Shape>> = {
+  ok: { kind: "ok", sideEffect: null },
+  denied: { kind: "denied", sideEffect: null },
+  "not-found": { kind: "not-found", sideEffect: null },
+  "too-large": { kind: "too-large", sideEffect: null },
+  failed: { kind: "failed", sideEffect: null },
+  "aborted-before": { kind: "aborted", sideEffect: "none" },
+  "aborted-during": { kind: "aborted", sideEffect: "unknown" },
+};
 
 /**
  * 把实现驱动到某个结果。返回 null = 摆不出，那一格进能力矩阵。
@@ -36,7 +71,7 @@ const KINDS = Object.keys(TOOL_SCENARIOS) as ToolOutcome["kind"][];
  * NOTE: 要连 opts 一起给回来 —— aborted 那一格只有靠 signal 才摆得出，
  * 而 signal 是 run 的参数，不是端口的构造参数。
  */
-export type ToolStage = (kind: ToolOutcome["kind"]) => {
+export type ToolStage = (kind: ToolCase) => {
   readonly port: ToolPort;
   readonly call: ToolCall;
   readonly opts: CallOptions | undefined;
@@ -47,7 +82,7 @@ export type ToolSubject = {
   readonly name: string;
   readonly stage: ToolStage;
   /** 摆不出的结果。声明和现实双向核对。 */
-  readonly cannotStage: readonly ToolOutcome["kind"][];
+  readonly cannotStage: readonly ToolCase[];
   /** 一个这个实现没预料到的调用，用来验「不抛」。 */
   readonly surprise: { readonly port: ToolPort; readonly call: ToolCall };
 };
@@ -57,6 +92,16 @@ export type ToolSubject = {
  *
  * @param subject - 被测实现 + 它摆不出的结果 + 一个意料之外的调用
  */
+/** run 的返回值只能落在这几个 kind 上。NOTE: 和 ToolCase 不是一回事。 */
+const OUTCOME_KINDS: readonly ToolOutcome["kind"][] = [
+  "ok",
+  "denied",
+  "not-found",
+  "too-large",
+  "failed",
+  "aborted",
+];
+
 export function toolPortContract(subject: ToolSubject): void {
   const stageable = KINDS.filter((k) => !subject.cannotStage.includes(k));
   const declaredMissing = KINDS.filter((k) => subject.cannotStage.includes(k));
@@ -68,12 +113,28 @@ export function toolPortContract(subject: ToolSubject): void {
       );
     });
 
-    it.each(stageable)("%s · run 解析出这一格", async (kind) => {
+    it.each(stageable)("%s · run 落在约定的那一格", async (kind) => {
       const staged = subject.stage(kind);
       if (staged === null)
         throw new Error(`${kind}: 声明说摆得出，却给了 null`);
       const outcome = await staged.port.run(staged.call, staged.opts);
-      expect(outcome.kind).toBe(kind);
+      // 整对象比较，不是只比 kind —— 只比 kind 的话两格 aborted 分不出来
+      expect(shapeOf(outcome)).toEqual(EXPECTED[kind]);
+    });
+
+    // IMPORTANT: 单独一条，因为上面那条是「摆得出吗」，这一条是
+    //            「两种取消真的说成了两句话吗」。合并了，一个把 sideEffect
+    //            写死成 "unknown" 的实现照样全绿（ADR 0015 §③）。
+    it("两种取消的 sideEffect 不同 —— 这一格不许压平", async () => {
+      const before = subject.stage("aborted-before");
+      const during = subject.stage("aborted-during");
+      if (before === null || during === null) return; // 摆不出的由能力矩阵管
+      const a = await before.port.run(before.call, before.opts);
+      const b = await during.port.run(during.call, during.opts);
+      expect([shapeOf(a).sideEffect, shapeOf(b).sideEffect]).toEqual([
+        "none",
+        "unknown",
+      ]);
     });
 
     // TRAP: 这一条不能和上面那条合并。上面问的是「摆得出这一格吗」，
@@ -85,19 +146,20 @@ export function toolPortContract(subject: ToolSubject): void {
       const outcome = await staged.port.run(staged.call, {
         signal: AbortSignal.abort(),
       });
-      expect(outcome.kind).toBe("aborted");
+      // 进来之前就取消 = 一步没跑，所以这里必须是 none 不是 unknown
+      expect(shapeOf(outcome)).toEqual({ kind: "aborted", sideEffect: "none" });
     });
 
     it("意料之外的调用也返回结果，不抛", async () => {
       const outcome = await subject.surprise.port.run(subject.surprise.call);
-      expect(KINDS).toContain(outcome.kind);
+      expect(OUTCOME_KINDS).toContain(outcome.kind);
     });
 
     it.each([undefined, {}] as const)("opts 是 %o 时也能跑", async (opts) => {
       const staged = subject.stage(stageable[0] ?? "ok");
       if (staged === null) throw new Error("一个结果都摆不出，契约无从谈起");
       const outcome = await staged.port.run(staged.call, opts);
-      expect(KINDS).toContain(outcome.kind);
+      expect(OUTCOME_KINDS).toContain(outcome.kind);
     });
   });
 }
