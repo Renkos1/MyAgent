@@ -137,7 +137,7 @@ describe("不幂等 / 往返不闭合 —— 尾斜杠保留和绝对路径拒�
     );
   });
 
-  // NOTE: 「空串被拒」这条决定 ADR 0008 里没有记录，只活在 path.ts 的 empty 分支。
+  // @see docs/decisions/0008-path-resolution.md §⑦ —— 空串为什么不等同于 "."
   it("往返在 root 自身处断开：relative 给出空串，而空串被拒", () => {
     // 这个边界随机搜索撞不到（要恰好抵消成 root），直接钉死
     expect(resolveInsideRoot(ROOT, ".")).toEqual({ ok: true, value: ROOT });
