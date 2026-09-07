@@ -32,11 +32,15 @@ jobs:
       # 「本地绿 = CI 绿」这句话才站得住（runner 自带 Go）。
       # NOTE: /v8@latest 只钉大版本。新版本让 CI 变红是可接受的
       #       —— 一个扫描器变得更严格，是它在做该做的事。
+      # TRAP: GITHUB_PATH 只对**后续 step**生效，对当前这一步不生效。
+      #       第一版在同一步里写 `gitleaks version`，CI 报 command not found、
+      #       退出码 127。自检要用全路径。
+      #       这条本地复现不了 —— 本地根本没有 GITHUB_PATH 这个机制。
       - name: Setup gitleaks
         run: |
           go install github.com/zricethezav/gitleaks/v8@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          gitleaks version
+          "$(go env GOPATH)/bin/gitleaks" version
 
       # pnpm/action-setup 已声明继任者 pnpm/setup（pnpm v11+ 用后者）。
       # 不传 version：package.json 的 packageManager 是唯一来源。
