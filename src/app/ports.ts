@@ -45,6 +45,15 @@ export type LlmResponse =
   | { readonly kind: "completed"; readonly text: string }
   /** 半句话不是答案（见 ADR 0006 §④），但留着给调用方展示。 */
   | { readonly kind: "truncated"; readonly partialText: string }
+  /**
+   * 上下文窗口在生成途中被撑满。partialText 的地位同 truncated。
+   *
+   * @remarks
+   * IMPORTANT: 它是供应商的成功响应，不是错误 —— 所以不在 {@link LlmError} 里。
+   * 判据是端口自己的那条：错误分支表示「没问到模型」，这一支问到了。
+   * @see docs/decisions/0016-context-exceeded.md
+   */
+  | { readonly kind: "context-exceeded"; readonly partialText: string }
   | { readonly kind: "refused" }
   | { readonly kind: "empty" };
 
@@ -222,6 +231,8 @@ export function toOutcome(res: LlmResponse): TurnOutcome {
       return { kind: "completed" };
     case "truncated":
       return { kind: "truncated" };
+    case "context-exceeded":
+      return { kind: "context-exceeded" };
     case "refused":
       return { kind: "refused" };
     case "empty":

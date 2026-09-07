@@ -107,11 +107,34 @@ export type Deps = {
  *
  * @remarks
  * 判据是供应商那边有没有产生 token，见 ADR 0011 §②。
+ *
+ * IMPORTANT: 写成穷尽 switch 而不是布尔表达式，是为了让 {@link LlmError}
+ * 长出新 kind 时 tsc 报 TS2366（缺少 return），逼人当场答一次
+ * 「这一支花钱了没有」。布尔表达式会把新 kind 静默判成 false ——
+ * 那个默认值从来没人选过。
+ *
+ * TRAP: 2026-09 实测过代价：给 LlmError 加一格 `context-exceeded`，
+ * `pnpm verify` 八道门全过、218 个用例全绿、退出码 0，零信号。
+ * 复现：在 ports.ts 的 LlmError 末尾加一个 kind，别改别的，跑 pnpm verify。
+ * 对照组是同文件的 LlmResponse —— 它有 KindsMatch 顶着，tsc 当场点名两处。
+ *
  * TODO(阶段 4): unavailable 里混着「连接超时」和「生成到一半断线」，
  * 后者其实花了钱 —— 接真模型时要用 provider 后台的用量对账。
+ * @see docs/decisions/0016-context-exceeded.md
  */
 function refundable(e: LlmError): boolean {
-  return e.kind === "unavailable" || e.kind === "rejected";
+  switch (e.kind) {
+    // 没问到模型，或者被它在生成之前挡下
+    case "unavailable":
+    case "rejected":
+      return true;
+    // 我们自己叫停的：请求已经发出去，可能已经生成了一部分
+    case "aborted":
+      return false;
+    // 拿到响应了才发现读不懂 —— token 已经产生
+    case "malformed":
+      return false;
+  }
 }
 
 /** 只对 unavailable 重试；retryAfterMs 有值就听它的。 */
