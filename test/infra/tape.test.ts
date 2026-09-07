@@ -111,6 +111,17 @@ describe("replaying：请求对得上才放，对不上当场红", () => {
     );
   });
 
+  // IMPORTANT: 录制端把 method 存成大写（见下面「都录下来了」那条），回放端拿到的
+  //            却是调用方原样的字符串 —— 归一化只发生在 fingerprint 里面。
+  //            少了那一步，同一个请求会因为大小写不同被判成「对不上」，是假警报。
+  // TRAP: 不能指望 fetch 替你归一化。实测 get→GET、post→POST，
+  //       但 patch 原样透传 —— WHATWG 的归一化名单里没有 PATCH。
+  it("method 只有大小写不同 → 照样对得上", async () => {
+    const play = replaying(tape(oneExchange()));
+    const res = await play(URL_, { method: "post", body: ASK });
+    expect(res.status).toBe(200);
+  });
+
   it("带子放完了还请求 → 抛，且说得出带子里有几次", async () => {
     const play = replaying(tape(oneExchange()));
     await play(URL_, { method: "POST", body: ASK });
