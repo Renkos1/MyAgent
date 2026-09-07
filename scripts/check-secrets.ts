@@ -39,7 +39,7 @@
  *
  *   TRAP: 上面这张表原来直接写了示例值，结果**被这个脚本自己抓了** ——
  *   `token = <高熵串>` 正是 generic-api-key 的触发形状，哪怕值是截断的。
- *   同 ts-modern-train engineering/19 坑 ⑦：★写检查器先问它会不会扫到自己★。
+ *   同 ts-modern-train engineering/19 坑 ⑦：IMPORTANT: 写检查器先问它会不会扫到自己。
  *   这已经是本项目第三次踩它（check-notation 的字面量、门禁三的 yaml 注释）。
  *
  *   两条结论：
