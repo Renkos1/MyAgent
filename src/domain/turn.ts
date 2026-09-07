@@ -35,6 +35,16 @@ export type TurnOutcome =
    * NOTE: 它来自供应商的成功响应（HTTP 200），不是错误 —— 输入已经计费。
    */
   | { readonly kind: "context-exceeded" }
+  /**
+   * 供应商把这一轮暂停了（server tool 跑太久）。
+   *
+   * @remarks
+   * NOTE: 本项目不用 server tool，所以它不该出现。线格式上可续，
+   * 但我们没有续的路径 —— 所以判成失败，不是 continue。
+   */
+  | { readonly kind: "paused" }
+  /** 撞上了自定义停止序列。NOTE: 我们一个都没设，出现即请求不对。 */
+  | { readonly kind: "stop-sequence" }
   /** 供应商拒绝生成。 */
   | { readonly kind: "refused" }
   /** 既没有内容也没有工具请求。 */
@@ -51,6 +61,8 @@ export type AbortReason =
   | InsufficientBudget
   | { readonly kind: "truncated" }
   | { readonly kind: "context-exceeded" }
+  | { readonly kind: "paused" }
+  | { readonly kind: "stop-sequence" }
   | { readonly kind: "refused" }
   | { readonly kind: "empty-response" }
   | InvalidCount;
@@ -89,11 +101,15 @@ export function decide(outcome: TurnOutcome): Decision {
     case "completed":
       return { kind: "done" };
 
-    // 内容不可信的四种，一律失败
+    // 内容不可信的六种，一律失败
     case "truncated":
       return { kind: "aborted", reason: { kind: "truncated" } };
     case "context-exceeded":
       return { kind: "aborted", reason: { kind: "context-exceeded" } };
+    case "paused":
+      return { kind: "aborted", reason: { kind: "paused" } };
+    case "stop-sequence":
+      return { kind: "aborted", reason: { kind: "stop-sequence" } };
     case "refused":
       return { kind: "aborted", reason: { kind: "refused" } };
     case "empty":

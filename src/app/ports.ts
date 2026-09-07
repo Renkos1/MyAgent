@@ -34,13 +34,44 @@ export type ToolCall =
   | { readonly name: "search"; readonly id: string; readonly query: string };
 
 /**
+ * 供应商附带的元数据，和语义分开存。
+ *
+ * @remarks
+ * SAFETY: 两个字段都只放**闭集里的短标识符或 null**，绝不放自由文本 ——
+ * 同 {@link ToolOutcome} 的 `cause`。日志脱敏规则阶段 8 才定，在那之前
+ * 放进来的自由文本会原样进日志。
+ *
+ * NOTE: A4 给 pause_turn / stop_sequence 各开一格之后，kind 反过来能确定
+ * stopReason，所以这个字段现在主要是**未来的回填口子**：出现我们没见过的
+ * stop_reason 时，语义走 malformed，原文留在这里。真正不可还原的是
+ * refusalCategory。
+ *
+ * @see docs/decisions/0017-provider-meta.md
+ */
+export type ProviderMeta = {
+  /** 供应商原样的 stop_reason；自己造的响应填 null。 */
+  readonly stopReason: string | null;
+  /** refusal 的分类（如 "cyber"）；不是 refusal 或供应商没给就是 null。 */
+  readonly refusalCategory: string | null;
+};
+
+/** 没有供应商的场合用它：Fake、组合根、测试。 */
+export const NO_META: ProviderMeta = {
+  stopReason: null,
+  refusalCategory: null,
+};
+
+/**
  * 模型这一轮说了什么。payload 塞在 kind 里，不三个字段并列。
  *
  * @remarks
  * IMPORTANT: kind 集合必须和 domain 的 {@link TurnOutcome} 一致，
  * 由下面的 `KindsMatch` 在编译期钉死。
+ *
+ * 每一格都带 {@link ProviderMeta}，语义和元数据分开 ——
+ * 语义决定调用方做什么，元数据只为回填和排障。
  */
-export type LlmResponse =
+export type LlmResponse = { readonly meta: ProviderMeta } & (
   | { readonly kind: "tool-requested"; readonly calls: readonly ToolCall[] }
   | { readonly kind: "completed"; readonly text: string }
   /** 半句话不是答案（见 ADR 0006 §④），但留着给调用方展示。 */
@@ -54,8 +85,28 @@ export type LlmResponse =
    * @see docs/decisions/0016-context-exceeded.md
    */
   | { readonly kind: "context-exceeded"; readonly partialText: string }
+  /**
+   * 供应商把这一轮暂停了（server tool 跑太久）。
+   *
+   * @remarks
+   * NOTE: 本项目不用 server tool，所以它**不该出现**。各开一格而不是压进
+   * malformed，是为了真出现时错误信息说得清是哪一个。
+   * IMPORTANT: 线格式上它是可续的（把 assistant 那轮原样发回去），
+   * 但我们没有续的路径，所以 decide 把它判成 aborted。
+   * @see docs/decisions/0017-provider-meta.md
+   */
+  | { readonly kind: "paused"; readonly partialText: string }
+  /**
+   * 撞上了自定义停止序列。
+   *
+   * @remarks
+   * NOTE: 我们一个 stop_sequences 都没设，所以它同样**不该出现**。
+   * 出现说明请求不是我们以为的那个请求。
+   */
+  | { readonly kind: "stop-sequence"; readonly text: string }
   | { readonly kind: "refused" }
-  | { readonly kind: "empty" };
+  | { readonly kind: "empty" }
+);
 
 /** 按「调用方要做什么」分类，不按 HTTP 状态码分。 */
 export type LlmError =
@@ -90,6 +141,20 @@ export type StreamChunk =
 /** 对话里的一条。用例层攒着它们，每次把全部发出去。 */
 export type TurnInput =
   | { readonly role: "user"; readonly text: string }
+  /**
+   * 模型上一轮要求的工具调用，原样记进历史。
+   *
+   * @remarks
+   * IMPORTANT: 这一格不是为了好看 —— 没有它，适配器**造不出合法请求**。
+   * 供应商的线格式要求「工具结果」必须回应前一条 assistant 消息里的
+   * 工具调用块，而 ADR 0004 之后历史里只有 user 和 tool-result 两种角色，
+   * 那条 assistant 消息无处可存。
+   *
+   * 存的是端口自己的 {@link ToolCall}，不是供应商的原始块 ——
+   * 供应商的形状不许漏进 app 层，重建交给适配器。
+   * @see docs/decisions/0018-assistant-turn.md
+   */
+  | { readonly role: "assistant"; readonly calls: readonly ToolCall[] }
   | {
       readonly role: "tool-result";
       readonly id: string;
@@ -233,6 +298,10 @@ export function toOutcome(res: LlmResponse): TurnOutcome {
       return { kind: "truncated" };
     case "context-exceeded":
       return { kind: "context-exceeded" };
+    case "paused":
+      return { kind: "paused" };
+    case "stop-sequence":
+      return { kind: "stop-sequence" };
     case "refused":
       return { kind: "refused" };
     case "empty":

@@ -325,6 +325,12 @@ export async function* run(
       if (outcome !== undefined) yield { kind: "tool-finished", call, outcome };
     }
 
+    // IMPORTANT: assistant 那一轮必须先进历史，工具结果才有东西可回应 ——
+    //            供应商的线格式要求「工具结果」跟在带工具调用的 assistant 后面。
+    //            ADR 0004 之后历史里只有 user / tool-result，这一格是补上的。
+    // @see docs/decisions/0018-assistant-turn.md
+    history = [...history, { role: "assistant", calls }];
+
     // 工具结果走 truncate（ADR 0011 §⑥）
     const texts = outcomes.map(renderOutcome);
     const back = admitInput(budget, texts, cfg.toolResultMode);
