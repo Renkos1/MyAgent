@@ -20,6 +20,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # IMPORTANT: 默认是 fetch-depth: 1，只拿到一个 commit。
+          # 而 pnpm secrets 里的 `gitleaks git .` 扫的是整个历史 ——
+          # 不改这一行的话，CI 上那一步永远只扫 1 个 commit 然后报绿。
+          # 这是 CI 侧的假绿，本地跑不出来（本地有完整历史）。
+          fetch-depth: 0
+
+      # gitleaks 是 Go 二进制，不是 npm 包，所以要单独装。
+      # 用 go install 而不是第三方 action：和本地装法完全一样，
+      # 「本地绿 = CI 绿」这句话才站得住（runner 自带 Go）。
+      # NOTE: /v8@latest 只钉大版本。新版本让 CI 变红是可接受的
+      #       —— 一个扫描器变得更严格，是它在做该做的事。
+      - name: Setup gitleaks
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          gitleaks version
 
       # pnpm/action-setup 已声明继任者 pnpm/setup（pnpm v11+ 用后者）。
       # 不传 version：package.json 的 packageManager 是唯一来源。
