@@ -201,7 +201,9 @@ type KindsMatch = [TurnOutcome["kind"]] extends [LlmResponse["kind"]]
 /**
  * IMPORTANT: 这一行是门禁。不一致时 tsc 报
  * `Type 'true' is not assignable to type 'never'`。
- * NOTE: 运行时是死代码 —— 覆盖率会缺这一行。
+ * NOTE: 运行时是死代码 —— 覆盖率会缺这一行，变异测试也永远杀不掉它
+ * （`true` 改成 `false` 只影响编译，不影响运行）。
+ * 同 `eval/parse.ts` 的 `ToolNamesMatch`。
  */
 const _kindsMatch: KindsMatch = true;
 void _kindsMatch;

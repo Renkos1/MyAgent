@@ -148,6 +148,8 @@ async function runTools(
   calls: readonly ToolCall[],
   opts: CallOptions | undefined,
 ): Promise<readonly ToolOutcome[]> {
+  // NOTE: 预分配是写给读者的意图（长度 = 请求数），不是行为 —— `out[i] =`
+  //       在空数组上照样把洞填出来。所以 `new Array()` 那个变异体是等价的。
   const out: ToolOutcome[] = new Array<ToolOutcome>(calls.length);
   let next = 0;
   const concurrency = Math.max(
@@ -199,6 +201,16 @@ function renderOutcome(outcome: ToolOutcome): string {
  *
  * IMPORTANT: 它不抛异常。端口失败进 `failed`，我们自己的规则挡下来进
  * `aborted`，输入在进循环前就不合法进 `setup` —— 三者调用方的处理不同。
+ *
+ * NOTE: 这个函数里有四个变异体永远杀不掉，四个是同一回事 —— **防御性收窄**。
+ * 真值都由别处的不变量保证，而类型系统证不出来，所以留着兜底：
+ *
+ * - `res.value.kind === "completed"` —— decide 只在 completed 那一支返回 done
+ * - `res.value.kind === "tool-requested"` —— 同上，continue 只从这一支来
+ * - `outcome !== undefined` —— runTools 按下标填满 out，不会留洞
+ * - `call === undefined` —— 下标来自 `calls.entries()`，必在界内
+ *
+ * 改掉任何一个，行为都不变 ⇒ 报告里永远存活。**这是已知的，不是漏测。**
  *
  * @param deps - 注入的端口和 sleep
  * @param cfg - 已校验的配置（{@link ValidRunConfig} 只能由 createRunConfig 产出）
