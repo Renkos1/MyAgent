@@ -152,12 +152,22 @@ export function toResponse(
         if (call === null) return err({ kind: "malformed", raw: "tool_use" });
         calls.push(call);
       }
-      return ok({ kind: "tool-requested", calls, meta });
+      // 重建不了的块原样留着：thinking 带 signature，造不出来也丢不得。
+      // NOTE: 判据是**排除法**——能从 ToolCall 重建的（tool_use）和端口明确
+      //       丢弃的（text，见上面的 A6）之外，一律留。将来供应商加了新块
+      //       类型，这里不用改。
+      const opaque = msg.content.filter(
+        (b) => b.type !== "tool_use" && b.type !== "text",
+      );
+      return opaque.length === 0
+        ? ok({ kind: "tool-requested", calls, meta })
+        : ok({ kind: "tool-requested", calls, opaque, meta });
     }
 
     case "end_turn": {
-      const hasText = joinText(msg.content) !== "";
-      return hasText
+      // 「空」由**块的有无**定义，不由内容定义 —— 只有一个 text:"" 块也是 completed
+      const hasTextBlock = msg.content.some((b) => b.type === "text");
+      return hasTextBlock
         ? ok({ kind: "completed", text: joinText(msg.content), meta })
         : ok({ kind: "empty", meta });
     }
@@ -177,7 +187,8 @@ export function toResponse(
       });
 
     case "pause_turn":
-      return ok({ kind: "paused", partialText: "", meta });
+      // 地位同 truncated：已经产出的文本要留着，不能丢
+      return ok({ kind: "paused", partialText: joinText(msg.content), meta });
 
     case "stop_sequence":
       return ok({ kind: "stop-sequence", text: joinText(msg.content), meta });
@@ -211,17 +222,17 @@ export function toResponse(
  * 过去的时间点会得到负数，一律夹成 0（「现在就可以重试」）。
  */
 function retryAfterMs(headers: Headers, now: () => number): number | null {
-  const after = headers.get("retry-after");
-  if (after !== null) {
-    const secs = Number.parseFloat(after);
-    if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
-    const at = Date.parse(after);
-    if (!Number.isNaN(at)) return Math.max(0, at - now());
-  }
   const ms = headers.get("retry-after-ms");
-  if (ms === null) return null;
-  const n = Number.parseFloat(ms);
-  return Number.isFinite(n) ? Math.max(0, n) : null;
+  if (ms !== null) {
+    const n = Number.parseFloat(ms);
+    if (Number.isFinite(n)) return Math.max(0, n);
+  }
+  const after = headers.get("retry-after");
+  if (after === null) return null;
+  const secs = Number.parseFloat(after);
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+  const at = Date.parse(after);
+  return Number.isNaN(at) ? null : Math.max(0, at - now());
 }
 
 /** 状态码本身该不该等一下再试。NOTE: 和 SDK 的 shouldRetry 同一张表。 */
@@ -342,23 +353,32 @@ export function toMessages(req: LlmRequest): Result<WireRequest, LlmError> {
   for (const item of req.history) {
     switch (item.role) {
       case "user":
+        // IMPORTANT: 必须先 flush —— 否则攒着的 tool_result 会被挪到这条之后，
+        //            assistant 的 tool_use 和它的结果块之间插进一条自然语言 user。
+        //            不报错、不 400，只是模型慢慢不再并发调工具（坑 6）。
+        flush();
         messages.push({ role: "user", content: item.text });
         break;
       case "assistant":
         flush();
         messages.push({
           role: "assistant",
-          content: item.calls.map((c) => ({
-            type: "tool_use" as const,
-            id: c.id,
-            name: c.name,
-            input:
-              c.name === "list_files"
-                ? { dir: c.dir }
-                : c.name === "read_file"
-                  ? { path: c.path }
-                  : { query: c.query },
-          })),
+          // IMPORTANT: 不透明块在前，tool_use 在后 —— 供应商发来的就是这个顺序
+          //            （实测 ["thinking","tool_use","tool_use"]），原样还回去。
+          content: [
+            ...((item.opaque ?? []) as Anthropic.ContentBlockParam[]),
+            ...item.calls.map((c) => ({
+              type: "tool_use" as const,
+              id: c.id,
+              name: c.name,
+              input:
+                c.name === "list_files"
+                  ? { dir: c.dir }
+                  : c.name === "read_file"
+                    ? { path: c.path }
+                    : { query: c.query },
+            })),
+          ],
         });
         break;
       case "tool-result":

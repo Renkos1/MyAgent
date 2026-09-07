@@ -340,7 +340,15 @@ export async function* run(
     //            供应商的线格式要求「工具结果」跟在带工具调用的 assistant 后面。
     //            ADR 0004 之后历史里只有 user / tool-result，这一格是补上的。
     // @see docs/decisions/0018-assistant-turn.md
-    history = [...history, { role: "assistant", calls }];
+    // opaque 只是搬运：用例层不看内容、不判断，只保证它跟着 calls 一起回去。
+    // NOTE: 条件展开而不是 `opaque: x ?? undefined` —— exactOptionalPropertyTypes
+    //       下「没有这个键」和「键的值是 undefined」是两种类型。
+    const opaque =
+      res.value.kind === "tool-requested" ? res.value.opaque : undefined;
+    history = [
+      ...history,
+      { role: "assistant", calls, ...(opaque === undefined ? {} : { opaque }) },
+    ];
 
     // 工具结果走 truncate（ADR 0011 §⑥）
     const texts = outcomes.map(renderOutcome);

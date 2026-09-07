@@ -72,7 +72,27 @@ export const NO_META: ProviderMeta = {
  * 语义决定调用方做什么，元数据只为回填和排障。
  */
 export type LlmResponse = { readonly meta: ProviderMeta } & (
-  | { readonly kind: "tool-requested"; readonly calls: readonly ToolCall[] }
+  | {
+      readonly kind: "tool-requested";
+      readonly calls: readonly ToolCall[];
+      /**
+       * 不透明续传令牌 —— 原样带回去，不许看、不许解释。
+       *
+       * @remarks
+       * IMPORTANT: 唯一的合法用法是把它塞进 {@link TurnInput} 的 assistant 那一格，
+       * 让适配器还给供应商。用例层读它、判断它、根据它分支，都是 bug。
+       *
+       * 为什么必须存在：thinking 块带 signature，**造不出来也丢不得** ——
+       * 端口的词汇（{@link ToolCall}）重建不了它，而供应商要验。
+       * 这和 cookie / 分页 cursor / refresh token 是同一个形状。
+       *
+       * NOTE: 2026-09 实测，DeepSeek 兼容端点丢掉 thinking 块**不报错**
+       * （见 scripts/probe-roundtrip.ts）。留这个字段是为了 Anthropic 官方
+       * 和「签名存在就说明有人会验」这条推断，不是为了当下的某个 400。
+       * @see docs/decisions/0019-opaque-continuation.md
+       */
+      readonly opaque?: readonly unknown[];
+    }
   | { readonly kind: "completed"; readonly text: string }
   /** 半句话不是答案（见 ADR 0006 §④），但留着给调用方展示。 */
   | { readonly kind: "truncated"; readonly partialText: string }
@@ -145,6 +165,12 @@ export type CallOptions = { readonly signal?: AbortSignal };
  *
  * TODO(阶段 4): truncated 的 partialText 要不要也走 text 块？真适配器一定会发
  * （截断之前的文本已经流出去了），FakeLlm 不发 —— 契约现在没说，接真模型时定。
+ *
+ * TODO(阶段 5 之前): **tool-requested 那一轮流式该不该吐 text 块，这里没规定。**
+ * 上面两条不变量都只管 completed，于是契约套件断言中间块的那条测试也只对
+ * completed 跑。实测代价：把 stream 的过滤条件放宽成「thinking_delta 也发」，
+ * tool-requested 那盘带子真吐出 35 个 text 块，37 个断言一个没红。
+ * 现在靠 test/infra/streamFilter.test.ts 单独摁住，但那是补丁不是契约。
  */
 export type StreamChunk =
   | { readonly kind: "text"; readonly delta: string }
@@ -166,7 +192,17 @@ export type TurnInput =
    * 供应商的形状不许漏进 app 层，重建交给适配器。
    * @see docs/decisions/0018-assistant-turn.md
    */
-  | { readonly role: "assistant"; readonly calls: readonly ToolCall[] }
+  | {
+      readonly role: "assistant";
+      readonly calls: readonly ToolCall[];
+      /**
+       * 上一轮响应里那份 {@link LlmResponse} 的 `opaque`，原样搬过来。
+       *
+       * IMPORTANT: 用例层的职责到「搬」为止 —— 不看内容、不做判断。
+       * 缺了它在 DeepSeek 上没事，在会验签的供应商上是 400。
+       */
+      readonly opaque?: readonly unknown[];
+    }
   | {
       readonly role: "tool-result";
       readonly id: string;
@@ -186,6 +222,65 @@ export type LlmRequest = {
 };
 
 /**
+ * 一项能力的支持情况。
+ *
+ * @remarks
+ * IMPORTANT: 三态，不是布尔。`unknown` 表示**我们还没测过** ——
+ * 它和 `no` 是两件事：`no` 是「测过，不支持」，`unknown` 是「不知道，
+ * 谁依赖它谁自己去测」。把没测过的写成 `no` 会让后面的人以为有结论。
+ *
+ * 同一条不变量见 {@link ToolOutcome} 的 `sideEffect: "unknown"`
+ * 和 {@link LlmError} 的 `malformed.raw`：**把「不知道」写进类型**。
+ */
+export type Support = "yes" | "no" | "unknown";
+
+/**
+ * 一个供应商实际支持什么。
+ *
+ * @remarks
+ * IMPORTANT: 每一格都必须由**实测**填，不许照文档抄 ——
+ * 「线格式相同 ≠ 能力相同」是阶段 4 的核心命题，而文档描述的是线格式。
+ * 每一格旁边要能指出是哪个 `scripts/probe-*.ts` 测出来的。
+ *
+ * 它是端口的一部分而不是适配器的私有属性，因为**调用方要据此分支**：
+ * 不支持并发就没必要开并发工具，不支持对话中系统消息就得换一种
+ * 传运营指令的办法。
+ */
+export type ProviderCapabilities = {
+  /** 会不会返回 tool_use。probe-tools ① */
+  readonly toolUse: Support;
+  /** 一条 assistant 消息里能不能有多个 tool_use。probe-tools ② */
+  readonly parallelToolUse: Support;
+  /** 流式，且满足 {@link StreamChunk} 的两条不变量。probe-stream */
+  readonly streaming: Support;
+  /** `messages[]` 里的 `role:"system"`（对话中系统消息）。 */
+  readonly midConversationSystem: Support;
+  /**
+   * 提示缓存。`automatic` = 不传 cache_control 也会缓存。probe-tools 的 usage
+   *
+   * NOTE: 这一格不是 {@link Support} —— 「自动」和「要显式打断点」
+   * 对调用方是两种不同的活，压成 yes 就丢了这个区别。
+   */
+  readonly promptCaching: "none" | "automatic" | "explicit" | "unknown";
+  /**
+   * 丢掉 thinking 块再发回去会不会被拒。probe-roundtrip
+   *
+   * IMPORTANT: `no` 不等于「可以丢」—— 块上带着 signature，
+   * 换一个供应商就可能变成 `yes`。这一格存在的意义是解释
+   * 为什么 `opaque` 这条通路在这里看起来是多余的。
+   * @see docs/decisions/0019-opaque-continuation.md
+   */
+  readonly verifiesThinkingSignature: Support;
+  /**
+   * 模型名不存在时会不会拒绝。probe-errors ②
+   *
+   * SAFETY: `no` 是一个**危险**的取值 —— 模型名打错不报错，
+   * 请求会被别的模型接走，而且没有任何信号。
+   */
+  readonly validatesModelName: Support;
+};
+
+/**
  * 问模型。
  *
  * @remarks
@@ -198,6 +293,14 @@ export type LlmRequest = {
  * @see docs/decisions/0004-history-ownership.md  为什么历史归用例层
  */
 export interface LlmPort {
+  /**
+   * 这个实现背后的供应商支持什么。
+   *
+   * IMPORTANT: 必填。省略它就等于把能力差异留在文档里，
+   * 而文档不会在编译期提醒任何人。
+   */
+  readonly capabilities: ProviderCapabilities;
+
   send(
     req: LlmRequest,
     opts?: CallOptions,

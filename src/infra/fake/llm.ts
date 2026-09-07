@@ -12,6 +12,7 @@ import type {
   CallOptions,
   LlmError,
   LlmPort,
+  ProviderCapabilities,
   LlmRequest,
   LlmResponse,
   StreamChunk,
@@ -31,6 +32,26 @@ export type Scripted = Result<LlmResponse, LlmError>;
  * 所以「最多问 N 次」不用写 expect，摆好脚本就有了。
  */
 export class FakeLlm implements LlmPort {
+  /**
+   * 假模型的能力表。
+   *
+   * IMPORTANT: 全 `yes` 不是「假装什么都行」，是**事实** ——
+   * 这些能力由这个类自己实现，没有第三方可以不支持。
+   * `promptCaching: "none"` 同理：它一个字节都不缓存。
+   *
+   * NOTE: 这张表存在的意义是让契约套件能对每个实现问同一句话。
+   * 拿 FakeLlm 跑通不代表真适配器能跑通 —— 差异就在这张表里。
+   */
+  readonly capabilities: ProviderCapabilities = {
+    toolUse: "yes",
+    parallelToolUse: "yes",
+    streaming: "yes",
+    midConversationSystem: "yes",
+    promptCaching: "none",
+    verifiesThinkingSignature: "no",
+    validatesModelName: "yes",
+  };
+
   /**
    * 每次请求收到的全量历史，按顺序。
    *
