@@ -25,13 +25,14 @@
     "eval": "node scripts/eval.ts",
     "mutate": "stryker run",
     "mutate:contract": "stryker run stryker.contract.config.mjs",
-    "verify": "pnpm check && pnpm lint && pnpm format:check && pnpm arch && pnpm glossary && pnpm notation && pnpm test && pnpm build",
+    "verify": "pnpm check && pnpm lint && pnpm format:check && pnpm arch && pnpm glossary && pnpm notation && pnpm secrets && pnpm test && pnpm build",
     "smoke": "node --env-file-if-exists=.env scripts/smoke.ts",
     "probe:tools": "node --env-file-if-exists=.env scripts/probe-tools.ts",
     "probe:roundtrip": "node --env-file-if-exists=.env scripts/probe-roundtrip.ts",
     "probe:errors": "node --env-file-if-exists=.env scripts/probe-errors.ts",
     "probe:stream": "node --env-file-if-exists=.env scripts/probe-stream.ts",
-    "record": "node --env-file-if-exists=.env scripts/record.ts"
+    "record": "node --env-file-if-exists=.env scripts/record.ts",
+    "secrets": "node scripts/check-secrets.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -52,6 +53,7 @@
   },
   "packageManager": "pnpm@11.15.1",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0"
+    "@anthropic-ai/sdk": "^0.124.0",
+    "zod": "^4.5.4"
   }
 }
