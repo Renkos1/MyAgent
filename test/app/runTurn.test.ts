@@ -119,7 +119,9 @@ describe("预算：端口失败时，没花到钱的要退回", () => {
 
   // malformed = 模型答了、只是我们读不懂 → 花了钱 → 不退。
   it("malformed → 不退，modelCalls 停在 1", async () => {
-    const llm = new FakeLlm([{ ok: false, error: { kind: "malformed" } }]);
+    const llm = new FakeLlm([
+      { ok: false, error: { kind: "malformed", raw: null } },
+    ]);
     const { result } = await collect(
       run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
     );

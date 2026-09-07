@@ -79,7 +79,7 @@ function scriptFor(s: Scenario): Scripted | null {
     case "bad-request":
       return { ok: false, error: { kind: "rejected" } };
     case "malformed":
-      return { ok: false, error: { kind: "malformed" } };
+      return { ok: false, error: { kind: "malformed", raw: null } };
     case "aborted-before-send":
       return {
         ok: true,

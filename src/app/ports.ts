@@ -116,8 +116,20 @@ export type LlmError =
   | { readonly kind: "rejected" }
   /** signal 触发。NOTE: 不是错误，是我们自己叫停的，但调用方要能分辨。 */
   | { readonly kind: "aborted" }
-  /** IMPORTANT: 适配器没能把响应压成五个 kind 之一 —— 我们的代码要改，不是等一下再试。 */
-  | { readonly kind: "malformed" };
+  /**
+   * IMPORTANT: 适配器没能把响应压成 {@link LlmResponse} 的某一格 ——
+   * 我们的代码要改，不是等一下再试。
+   *
+   * @remarks
+   * `raw` 是供应商原样的 stop_reason，没有就是 null。它存在的唯一理由是
+   * **回填**：出现我们没见过的 stop_reason 时，语义只能走这一支，
+   * 而「到底是哪个」不留下来就永远查不出。
+   *
+   * SAFETY: 只放供应商的 stop_reason 这种短标识符，不放消息体、不放路径 ——
+   * 同 {@link ProviderMeta} 的那条不变量。
+   * @see docs/decisions/0017-provider-meta.md
+   */
+  | { readonly kind: "malformed"; readonly raw: string | null };
 
 /** 现在就留，阶段 2 没人传 —— 留口子便宜，改签名贵。 */
 export type CallOptions = { readonly signal?: AbortSignal };

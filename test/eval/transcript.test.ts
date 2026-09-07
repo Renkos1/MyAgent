@@ -98,7 +98,7 @@ describe("toTranscript · answer 和 outcome", () => {
   it("failed 时同样是空串", () => {
     const t = toTranscript([], {
       kind: "failed",
-      error: { kind: "malformed" },
+      error: { kind: "malformed", raw: null },
       budget: BUDGET,
     });
     expect(t).toMatchObject({ outcome: "failed", answer: "" });
