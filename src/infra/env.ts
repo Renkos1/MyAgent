@@ -16,7 +16,7 @@
  * IMPORTANT: 判据是**输入形状是不是已经被 tsc 保证了**。是 -> Zod 只买到
  * 「把 tsc 已知的事再运行时说一遍」；不是 -> Zod 买到真正的 parse。
  * 仓库里两套校验风格并存是有意的，不是没统一。判据同步写进
- * `docs/decisions/0020-env-config.md`。
+ * `docs/decisions/0020-env-and-secrets.md`。
  *
  * ## 为什么不叫 ANTHROPIC_（决定 D7）
  *
@@ -29,7 +29,7 @@
  * NOTE: 阶段 4 用的是 `SMOKE_*`（那时只有冒烟脚本读环境）。现在读环境的不止
  * 脚本了，`SMOKE_` 这个名字名不副实,统一改成 `AGENT_`。
  *
- * @see docs/decisions/0020-env-config.md
+ * @see docs/decisions/0020-env-and-secrets.md
  */
 import { z } from "zod";
 import type { Secret } from "../domain/secret.ts";
