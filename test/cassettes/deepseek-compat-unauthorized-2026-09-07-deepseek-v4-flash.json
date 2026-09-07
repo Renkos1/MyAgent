@@ -1,0 +1,44 @@
+{
+  "name": "unauthorized",
+  "provider": "deepseek-compat",
+  "recordedAt": "2026-09-07",
+  "apiVersion": "deepseek-v4-flash",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/anthropic/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"deepseek-v4-flash\",\"max_tokens\":64,\"system\":\"你在回答关于一个代码仓库的问题。需要看文件时就调用工具。\",\"messages\":[{\"role\":\"user\",\"content\":\"随便问一句。\"}],\"tools\":[{\"name\":\"list_files\",\"description\":\"列出仓库内某个目录下的文件\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"dir\":{\"type\":\"string\"}},\"required\":[\"dir\"],\"additionalProperties\":false}},{\"name\":\"read_file\",\"description\":\"读取仓库内某个文件的内容\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"additionalProperties\":false}},{\"name\":\"search\",\"description\":\"在仓库里按关键词搜索\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}}]}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":{\"message\":\"Authentication Fails, Your api key: ****-key is invalid\",\"type\":\"authentication_error\",\"param\":null,\"code\":\"invalid_request_error\"}}"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/anthropic/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"deepseek-v4-flash\",\"max_tokens\":64,\"system\":\"你在回答关于一个代码仓库的问题。需要看文件时就调用工具。\",\"messages\":[{\"role\":\"user\",\"content\":\"随便问一句。\"}],\"tools\":[{\"name\":\"list_files\",\"description\":\"列出仓库内某个目录下的文件\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"dir\":{\"type\":\"string\"}},\"required\":[\"dir\"],\"additionalProperties\":false}},{\"name\":\"read_file\",\"description\":\"读取仓库内某个文件的内容\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"additionalProperties\":false}},{\"name\":\"search\",\"description\":\"在仓库里按关键词搜索\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}}],\"stream\":true}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":{\"message\":\"Authentication Fails, Your api key: ****-key is invalid\",\"type\":\"authentication_error\",\"param\":null,\"code\":\"invalid_request_error\"}}"
+      }
+    }
+  ]
+}

@@ -18,7 +18,7 @@ import { NO_META } from "../../src/app/ports.ts";
 import { FakeLlm } from "../../src/infra/fake/llm.ts";
 import type { Scripted } from "../../src/infra/fake/llm.ts";
 import { FakeTools } from "../../src/infra/fake/tools.ts";
-import { llmPortContract } from "./llmPort.contract.ts";
+import { ANY_REQ, llmPortContract } from "./llmPort.contract.ts";
 import { toolPortContract } from "./toolPort.contract.ts";
 import type { ToolCase } from "./toolPort.contract.ts";
 import type { Scenario } from "./scenarios.ts";
@@ -96,6 +96,8 @@ function scriptFor(s: Scenario): Scripted | null {
 llmPortContract({
   name: "FakeLlm",
   cannotStage: ["aborted-mid-flight"],
+  // NOTE: FakeLlm 按脚本走，不看请求内容 —— 问什么都一样
+  reqFor: () => ANY_REQ,
   stage: (s) => {
     const item = scriptFor(s);
     // 套件对同一个端口最多问 3 次；多备一格，问超了让 FakeLlm 自己炸出来

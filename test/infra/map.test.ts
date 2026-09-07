@@ -484,3 +484,93 @@ describe("toMessages：非法历史 → malformed", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+// ══════════════════════════════════════════════════════════════
+// ⑤ 不透明续传令牌 —— thinking 块必须原样往返
+// 实测：DeepSeek 兼容端点丢掉它不报错，但块带 signature，
+//       说明有供应商会验。见 scripts/probe-roundtrip.ts
+// @see docs/decisions/0019-opaque-continuation.md
+// ══════════════════════════════════════════════════════════════
+
+const thinking = (t: string, sig: string): Blocks[number] => ({
+  type: "thinking",
+  thinking: t,
+  signature: sig,
+});
+
+describe("toResponse：opaque 收集重建不了的块", () => {
+  it("thinking 块进 opaque，tool_use 不进", () => {
+    const r = toResponse(
+      msg("tool_use", [
+        thinking("想一想", "sig_abc"),
+        toolUse("t1", "search", { query: "x" }),
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.value.kind !== "tool-requested") throw new Error("kind");
+    expect(r.value.opaque).toEqual([
+      { type: "thinking", thinking: "想一想", signature: "sig_abc" },
+    ]);
+  });
+
+  it("text 块不进 opaque —— 端口明确丢弃它（A6）", () => {
+    const r = toResponse(
+      msg("tool_use", [
+        text("先说两句"),
+        toolUse("t1", "search", { query: "x" }),
+      ]),
+    );
+    if (!r.ok || r.value.kind !== "tool-requested") throw new Error("kind");
+    expect(r.value.opaque).toBeUndefined();
+  });
+
+  it("没有额外块时不带 opaque 这个键", () => {
+    const r = toResponse(
+      msg("tool_use", [toolUse("t1", "search", { query: "x" })]),
+    );
+    if (!r.ok || r.value.kind !== "tool-requested") throw new Error("kind");
+    expect("opaque" in r.value).toBe(false);
+  });
+});
+
+describe("toMessages：opaque 原样还回去", () => {
+  it("不透明块排在 tool_use 前面，顺序和供应商发来的一致", () => {
+    const blk = { type: "thinking", thinking: "想", signature: "sig_1" };
+    const r = toMessages(
+      req([
+        { role: "user", text: "q" },
+        {
+          role: "assistant",
+          calls: [{ name: "search", id: "t1", query: "x" }],
+          opaque: [blk],
+        },
+        { role: "tool-result", id: "t1", outcome: okContent("A") },
+      ]),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error("ok");
+    const assistant = r.value.messages[1];
+    expect(assistant?.role).toBe("assistant");
+    expect(assistant?.content).toEqual([
+      blk,
+      { type: "tool_use", id: "t1", name: "search", input: { query: "x" } },
+    ]);
+  });
+
+  it("没有 opaque 时 content 里只有 tool_use", () => {
+    const r = toMessages(
+      req([
+        { role: "user", text: "q" },
+        {
+          role: "assistant",
+          calls: [{ name: "search", id: "t1", query: "x" }],
+        },
+        { role: "tool-result", id: "t1", outcome: okContent("A") },
+      ]),
+    );
+    if (!r.ok) throw new Error("ok");
+    expect(r.value.messages[1]?.content).toEqual([
+      { type: "tool_use", id: "t1", name: "search", input: { query: "x" } },
+    ]);
+  });
+});
