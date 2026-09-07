@@ -6,69 +6,43 @@
  * 让 roadmap 里那几个「❓待亲手验证」变成写下来的事实。所以它先打印原始
  * Message（stop_reason / content 块的类型 / usage），再打印压出来的端口语义。
  *
- * 唯一读环境变量的地方就是这里 —— src/ 不碰 process.env（见 infra/anthropic/llm.ts）。
- *
  * 用法
  *   pnpm smoke                      用默认问题
  *   pnpm smoke "你的问题"           指定问题
  *
- * 需要的环境变量（放 .env，已经在 .gitignore 里）：
- *   SMOKE_AUTH_TOKEN=<provider 的 key>
- *   SMOKE_BASE_URL=https://api.deepseek.com/anthropic
- *   SMOKE_MODEL=claude-haiku-4-5-20251001            可选，有默认值
+ * 需要的环境变量见 .env.example。
  *
- * TRAP: 为什么不叫 ANTHROPIC_* —— 2026-09 实测。
- *   Node 的 --env-file 只**补**进程里没有的变量，已经存在的一律不动。
- *   而 ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL 是 SDK 和 Claude Code 都认的
- *   约定名，某些 shell 里本来就有值 —— 于是 .env 被静默忽略，请求打到别的端点，
- *   而且不报错（那次碰巧 401 才被发现，两边 key 都有效的话就是一份
- *   看起来正常、其实来自另一个 provider 的输出）。
- *   私有的值要用私有的名字。ANTHROPIC_* 仍然接受，但优先级在后。
+ * NOTE: 阶段 5 之前，读环境变量的地方就是这里；现在 parse 收进了
+ *   src/infra/env.ts，这个脚本只负责「读不出来就退出」这一个决定。
+ *   前缀也从 SMOKE_ 改成了 AGENT_（决定 D7）——
+ *   TRAP 还是那一条：Node 的 --env-file 只**补**进程里没有的变量，
+ *   而 ANTHROPIC_* 是 SDK 和 Claude Code 都认的约定名，某些 shell 里本来就有值，
+ *   于是 .env 被静默忽略、请求打到别的端点、而且不报错。
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { createAnthropicLlm } from "../src/infra/anthropic/llm.ts";
 import { DEEPSEEK_COMPAT } from "../src/infra/anthropic/providers.ts";
 import { TOOLS, toResponse } from "../src/infra/anthropic/map.ts";
+import { sourceOf } from "../src/infra/env.ts";
+import { loadEnvOrExit } from "./load-env.ts";
 
-/** 私有名优先，兼容名兜底。空串按「没设」处理。 */
-function env(name: string): string | undefined {
-  const own = process.env[`SMOKE_${name}`];
-  if (own !== undefined && own !== "") return own;
-  const shared = process.env[`ANTHROPIC_${name}`];
-  return shared === "" ? undefined : shared;
-}
+const { authToken, baseURL, model, maxTokens } = loadEnvOrExit("smoke");
+const token = authToken.expose();
 
-const token = env("AUTH_TOKEN");
-const baseURL = env("BASE_URL");
-const model = env("MODEL") ?? "claude-haiku-4-5-20251001";
-const maxTokens = Number(env("MAX_TOKENS") ?? "1024");
 /** 打印出来好排障：值来自哪一个名字。上面那个 TRAP 就是这样才看得见的 */
-const source = (name: string): string =>
-  process.env[`SMOKE_${name}`] !== undefined &&
-  process.env[`SMOKE_${name}`] !== ""
-    ? `SMOKE_${name}`
-    : `ANTHROPIC_${name}`;
-
-if (token === undefined) {
-  console.error("缺 SMOKE_AUTH_TOKEN。把它写进 MyAgent/.env，不要写进代码。");
-  process.exit(1);
-}
-if (baseURL === undefined) {
-  console.error(
-    "缺 SMOKE_BASE_URL。DeepSeek 是 https://api.deepseek.com/anthropic",
-  );
-  process.exit(1);
-}
+const source = (name: string): string => sourceOf(process.env, name) ?? "?";
 
 const question = process.argv[2] ?? "用一句话说明什么是纯函数。";
 
 // 打印能确认「打到了哪里」的信息，但不打印 key 本身
 console.log("─".repeat(66));
-console.log(`baseURL   ${baseURL}   ← ${source("BASE_URL")}`);
-console.log(`model     ${model}   ← ${source("MODEL")}`);
-console.log(
-  `key       长度 ${String(token.length)}，前 4 位 ${token.slice(0, 4)}…`,
-);
+console.log(`baseURL   ${baseURL}   <- ${source("BASE_URL")}`);
+console.log(`model     ${model}   <- ${source("MODEL")}`);
+// SAFETY: 不打印 key 的任何片段。阶段 4 这里打过「长度 + 前 4 位」，
+//         阶段 5 去掉了 —— 它想回答的是「我用的是哪个 key」，而上面那两行
+//         sourceOf 已经把这个问题回答得更准（值来自哪个变量名）。
+//         前 4 位对带固定前缀的 key 几乎不含信息，却是一条真的泄露路径。
+console.log(`key       ${String(authToken)}`);
 console.log(`问题      ${question}`);
 console.log("─".repeat(66));
 

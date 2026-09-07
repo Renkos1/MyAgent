@@ -46,6 +46,20 @@ module.exports = {
       to: { path: "^src/infra" },
     },
     {
+      name: "eval-不许碰-infra",
+      comment:
+        "eval 层和 app 层受同一条约束，理由却不同：\n" +
+        "app 不许碰 infra 是为了能用 fake 测；★eval 不许碰 infra 是为了别把\n" +
+        "「被测对象是谁」这件事藏进 import★ —— 它必须由组合根（scripts/eval.ts）\n" +
+        "显式装配后从参数传进来，成绩单里的 subject 才不是一句空话。\n" +
+        "⚠ 这条规则迟到了一个阶段：ts-modern-train 的待办写着「真适配器进 infra\n" +
+        "那天补」，而 src/infra/anthropic/ 在阶段 4 就进来了。补的时候 src/eval/\n" +
+        "碰巧还是干净的 —— ★守规矩和被摁着守规矩是两回事★。",
+      severity: "error",
+      from: { path: "^src/eval" },
+      to: { path: "^src/infra" },
+    },
+    {
       name: "无环",
       comment: "循环依赖 = 模块边界画错了。",
       severity: "error",
