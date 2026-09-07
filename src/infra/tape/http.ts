@@ -38,7 +38,7 @@ function bodyOf(init: RequestInit | undefined): string | null {
   if (b === undefined || b === null) return null;
   if (typeof b === "string") return b;
   throw new Error(
-    "录音带只支持字符串 body（ADR 0012 §② 的已知限制）——" +
+    "cassette.unsupported-body: 只支持字符串 body（ADR 0012 §② 的已知限制）——" +
       "收到的是别的形状，接真适配器时要先解决这一条。",
   );
 }

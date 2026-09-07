@@ -32,6 +32,10 @@ import { err, ok } from "../../domain/result.ts";
  * @remarks
  * IMPORTANT: 名字必须和 {@link ToolCall} 的判别值逐字一致 —— 模型按名字回话，
  * 对不上就会走 {@link toResponse} 的 malformed 分支。
+ *
+ * NOTE: description 的读者是**模型**，不是人也不是机器解析器。这一类字符串的
+ * 语言不按代码规范定，按实测定。
+ * TODO(阶段 4): 拿 src/eval/ 跑中文版 vs 英文版的对照，比通过率和 token 用量。
  */
 export const TOOLS: readonly Anthropic.Tool[] = [
   {

@@ -82,8 +82,11 @@ export class FakeLlm implements LlmPort {
     this.systems.push(req.system);
     const item = this.script[this.next];
     if (item === undefined) {
+      // NOTE: 冒号前是稳定的英文标识（可 grep、可当断言的 key），
+      //       后面的中文只是给人读的解释，改措辞不该影响任何匹配。
       throw new Error(
-        `FakeLlm：脚本只有 ${String(this.script.length)} 条，第 ${String(this.next + 1)} 次请求没得给`,
+        `FakeLlm.script-exhausted: 脚本只有 ${String(this.script.length)} 条，` +
+          `第 ${String(this.next + 1)} 次请求没得给`,
       );
     }
     this.next += 1;

@@ -112,8 +112,8 @@ export function saveCassette(dir: string, c: Cassette): string {
   const existing = matchingFiles(dir, c.provider, c.name);
   if (existing.length > 0) {
     throw new Error(
-      `录音带重名：${c.provider}/${c.name} 已经有 ${existing.join("、")}。` +
-        `重录前先删掉它 —— 覆盖会悄悄改掉别的测试的输入。`,
+      `cassette.duplicate-name: ${c.provider}/${c.name} 已经有 ` +
+        `${existing.join("、")}。重录前先删掉它 —— 覆盖会悄悄改掉别的测试的输入。`,
     );
   }
   mkdirSync(dir, { recursive: true });
@@ -140,13 +140,14 @@ export function loadCassette(
   const [only] = found;
   if (only === undefined) {
     throw new Error(
-      `没有录音带：${provider}/${name}。` +
+      `cassette.not-found: ${provider}/${name}。` +
         `IMPORTANT: 缺带子不自动补录 —— 跑一次录制脚本，别让 CI 去打真 API。`,
     );
   }
   if (found.length > 1) {
     throw new Error(
-      `录音带重名：${provider}/${name} 有 ${found.join("、")} 多盘，分不出该用哪一盘。`,
+      `cassette.duplicate-name: ${provider}/${name} 有 ${found.join("、")} 多盘，` +
+        `分不出该用哪一盘。`,
     );
   }
   return JSON.parse(readFileSync(join(dir, only), "utf8")) as Cassette;

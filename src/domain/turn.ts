@@ -82,7 +82,7 @@ export type Decision =
  */
 /* v8 ignore start -- 按定义不可达：能走到这里说明类型检查已经失败了 */
 function assertNever(x: never): never {
-  throw new Error(`意料之外的分支: ${JSON.stringify(x)}`);
+  throw new Error(`turn.unexpected-branch: ${JSON.stringify(x)}`);
 }
 /* v8 ignore stop */
 

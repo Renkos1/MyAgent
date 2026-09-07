@@ -191,7 +191,18 @@ async function runTools(
   return out;
 }
 
-/** 把工具结果变成喂回模型的文本。IMPORTANT: 截断要说出来，见 ADR 0011 §⑥。 */
+/**
+ * 把工具结果变成喂回模型的文本。IMPORTANT: 截断要说出来，见 ADR 0011 §⑥。
+ *
+ * @remarks
+ * NOTE: 这里的字符串是全项目少数**读者是模型**的字符串之一（另一处是
+ * infra/anthropic 的工具描述）。它们的语言不按代码规范定，按实测定 ——
+ * 判据是模型答得准不准、token 花多少，不是「哪种语言更规范」。
+ *
+ * TODO(阶段 4): 接上 key 之后拿 src/eval/ 跑一次对照：同一组题，
+ * 工具描述和工具结果的中文版 vs 英文版，比通过率和 token 用量。
+ * 在拿到那组数字之前不许凭直觉改语言。
+ */
 function renderOutcome(outcome: ToolOutcome): string {
   switch (outcome.kind) {
     case "ok":
