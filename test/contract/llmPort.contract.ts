@@ -38,9 +38,26 @@ export type LlmSubject = {
   readonly stage: Stage;
   /** 摆不出的场景。IMPORTANT: 声明和现实双向核对，光声明不核对会烂掉。 */
   readonly cannotStage: readonly ScenarioName[];
+  /**
+   * 这个实现被驱动到某个场景时，要发什么请求。
+   *
+   * @remarks
+   * IMPORTANT: 「问什么」是**驱动方式的一部分**，不是场景的属性 ——
+   * 所以它挂在 subject 上，不在 {@link Scenario} 里。
+   *
+   * 第一版套件写死了一个 REQ，那对 FakeLlm 成立（它按脚本走，不看请求内容），
+   * 对真适配器不成立：同一句话问下去，模型给 completed 还是 tool-requested
+   * 不由我们说了算。写死请求 = 真实现的一半场景永远摆不出来，
+   * 而套件的全部价值就是「同一组断言跑每个实现」。
+   *
+   * NOTE: 必填，没有默认值。给默认值的话，新实现会静默继承一个
+   * 未必适合它的请求 —— 又一处「没有信号的失败」。
+   */
+  readonly reqFor: (s: Scenario) => LlmRequest;
 };
 
-const REQ: LlmRequest = {
+/** FakeLlm 之类「不看请求内容」的实现用这个。 */
+export const ANY_REQ: LlmRequest = {
   system: "契约套件",
   history: [{ role: "user", text: "docs 下有什么" }],
 };
@@ -81,10 +98,11 @@ function shapeOf(res: Result<LlmResponse, LlmError>): Expected {
 /** 收完一条流。IMPORTANT: 不吞错误 —— 错误块也要留下来比对。 */
 async function drain(
   port: LlmPort,
+  req: LlmRequest,
   s: Scenario,
 ): Promise<Result<StreamChunk, LlmError>[]> {
   const out: Result<StreamChunk, LlmError>[] = [];
-  for await (const chunk of port.stream(REQ, optsFor(s))) out.push(chunk);
+  for await (const chunk of port.stream(req, optsFor(s))) out.push(chunk);
   return out;
 }
 
@@ -120,7 +138,9 @@ export function llmPortContract(subject: LlmSubject): void {
       const port = subject.stage(s);
       if (port === null)
         throw new Error(`${s.name}: 声明说摆得出，却给了 null`);
-      expect(shapeOf(await port.send(REQ, optsFor(s)))).toEqual(s.expected);
+      expect(shapeOf(await port.send(subject.reqFor(s), optsFor(s)))).toEqual(
+        s.expected,
+      );
     });
 
     // ── A 的可断言部分：实现不许记住上一次 ────────────────────
@@ -130,8 +150,8 @@ export function llmPortContract(subject: LlmSubject): void {
         const port = subject.stage(s);
         if (port === null)
           throw new Error(`${s.name}: 声明说摆得出，却给了 null`);
-        const first = shapeOf(await port.send(REQ, optsFor(s)));
-        const second = shapeOf(await port.send(REQ, optsFor(s)));
+        const first = shapeOf(await port.send(subject.reqFor(s), optsFor(s)));
+        const second = shapeOf(await port.send(subject.reqFor(s), optsFor(s)));
         expect([first, second]).toEqual([s.expected, s.expected]);
       },
     );
@@ -143,13 +163,43 @@ export function llmPortContract(subject: LlmSubject): void {
         if (port === null)
           throw new Error(`${s.name}: 声明说摆得出，却给了 null`);
         const all = await Promise.all([
-          port.send(REQ, optsFor(s)),
-          port.send(REQ, optsFor(s)),
-          port.send(REQ, optsFor(s)),
+          port.send(subject.reqFor(s), optsFor(s)),
+          port.send(subject.reqFor(s), optsFor(s)),
+          port.send(subject.reqFor(s), optsFor(s)),
         ]);
         expect(all.map(shapeOf)).toEqual([s.expected, s.expected, s.expected]);
       },
     );
+
+    /** 随便一个摆得出的端口 —— 能力表和场景无关，问哪个都一样。 */
+    const capabilityPort = (): LlmPort => {
+      const s = stageable[0] ?? SCENARIO_LIST[0];
+      const port = s === undefined ? null : subject.stage(s);
+      if (port === null) throw new Error("一个场景都摆不出，没法问能力");
+      return port;
+    };
+
+    // ── 能力表本身也是契约的一部分 ────────────────────────────
+    // IMPORTANT: 这两条让 ProviderCapabilities 变成**承重**的，
+    //            而不是一张写完就没人看的表。声明和行为不一致会红。
+    it("能力表存在，且每一格都是三态之一", () => {
+      const caps = capabilityPort().capabilities;
+      expect(
+        Object.entries(caps).map(([k, v]) => [
+          k,
+          ["yes", "no", "unknown", "none", "automatic", "explicit"].includes(
+            v as string,
+          ),
+        ]),
+      ).toEqual(Object.keys(caps).map((k) => [k, true]));
+    });
+
+    it("声明 streaming 不是 yes 的实现，不该被拿来跑流式断言", () => {
+      // NOTE: 这一条现在必然通过 —— 两个实现都声明 yes。它存在是为了
+      //       将来接一个不支持流式的 provider 时，能立刻看见下面那一批
+      //       流式断言是在对着一个声明「我不支持」的实现跑。
+      expect(capabilityPort().capabilities.streaming).toBe("yes");
+    });
 
     // ── send 和 stream 必须映射到同一格 ───────────────────────
     it.each(stageable)(
@@ -158,7 +208,7 @@ export function llmPortContract(subject: LlmSubject): void {
         const port = subject.stage(s);
         if (port === null)
           throw new Error(`${s.name}: 声明说摆得出，却给了 null`);
-        const chunks = await drain(port, s);
+        const chunks = await drain(port, subject.reqFor(s), s);
         const last = chunks.at(-1);
         if (last === undefined) throw new Error(`${s.name}: 流一块都没吐`);
 
@@ -189,7 +239,7 @@ export function llmPortContract(subject: LlmSubject): void {
         throw new Error(`${s.name}: 声明说摆得出，却给了 null`);
       let joined = "";
       let whole = "(没有 completed 的结尾块)";
-      for (const chunk of await drain(port, s)) {
+      for (const chunk of await drain(port, subject.reqFor(s), s)) {
         if (!chunk.ok) continue;
         if (chunk.value.kind === "text") joined += chunk.value.delta;
         else if (chunk.value.response.kind === "completed")
@@ -207,7 +257,9 @@ export function llmPortContract(subject: LlmSubject): void {
         const port = subject.stage(s);
         if (port === null)
           throw new Error(`${s.name}: 声明说摆得出，却给了 null`);
-        expect(shapeOf(await port.send(REQ, {}))).toEqual(s.expected);
+        expect(shapeOf(await port.send(subject.reqFor(s), {}))).toEqual(
+          s.expected,
+        );
       },
     );
 
@@ -218,7 +270,7 @@ export function llmPortContract(subject: LlmSubject): void {
         const port = subject.stage(s);
         if (port === null)
           throw new Error(`${s.name}: 声明说摆得出，却给了 null`);
-        const res = await port.send(REQ, optsFor(s));
+        const res = await port.send(subject.reqFor(s), optsFor(s));
         if (!res.ok || res.value.kind !== "tool-requested") {
           throw new Error(`${s.name}: 上一条断言应该先红`);
         }

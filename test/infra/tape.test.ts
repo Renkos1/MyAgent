@@ -271,12 +271,12 @@ describe("文件：名字带日期，重名拒绝，缺带子不自动补录", (
     saveCassette(dir, tape(oneExchange()));
     expect(() =>
       saveCassette(dir, { ...tape(oneExchange()), recordedAt: "2026-12-31" }),
-    ).toThrow(/重名[\s\S]*先删掉它/);
+    ).toThrow(/cassette\.duplicate-name[\s\S]*先删掉它/);
   });
 
   it("缺带子 → 抛，而且明说不自动补录", () => {
     expect(() => loadCassette(dir, "anthropic", "completed")).toThrow(
-      /没有录音带[\s\S]*不自动补录/,
+      // 后半段是这条测试的目的本身：消息必须明说不自动补录\n      /cassette\.not-found[\s\S]*不自动补录/,
     );
   });
 
@@ -289,7 +289,7 @@ describe("文件：名字带日期，重名拒绝，缺带子不自动补录", (
       "utf8",
     );
     expect(() => loadCassette(dir, "anthropic", "completed")).toThrow(
-      /有[\s\S]*多盘/,
+      /cassette\.duplicate-name[\s\S]*多盘/,
     );
   });
 
@@ -341,13 +341,13 @@ describe("边角：不传 init、目录里有别的文件、body 不是字符串
     const rec = recording(upstream(), META);
     await expect(
       rec.fetch(URL_, { method: "POST", body: new Uint8Array([1, 2, 3]) }),
-    ).rejects.toThrow(/只支持字符串 body/);
+    ).rejects.toThrow(/cassette\.unsupported-body/);
   });
 
   it("目录里别的场景的带子 → 找不到就是找不到，不许张冠李戴", () => {
     saveCassette(dir, { ...tape(oneExchange()), name: "refused" });
     expect(() => loadCassette(dir, "anthropic", "completed")).toThrow(
-      /没有录音带/,
+      /cassette\.not-found/,
     );
   });
 
@@ -358,7 +358,7 @@ describe("边角：不传 init、目录里有别的文件、body 不是字符串
       "utf8",
     );
     expect(() => loadCassette(dir, "anthropic", "completed")).toThrow(
-      /没有录音带/,
+      /cassette\.not-found/,
     );
   });
 
@@ -389,7 +389,7 @@ describe("边角：不传 init、目录里有别的文件、body 不是字符串
   it("目录压根不存在 → 也是「没有录音带」，不是崩", () => {
     expect(() =>
       loadCassette(join(dir, "还没建"), "anthropic", "completed"),
-    ).toThrow(/没有录音带/);
+    ).toThrow(/cassette\.not-found/);
   });
 
   it("重名的报错里点名旧文件（ADR 0012 §③ 的全部价值在这句话）", () => {

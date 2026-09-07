@@ -38,7 +38,7 @@ function bodyOf(init: RequestInit | undefined): string | null {
   if (b === undefined || b === null) return null;
   if (typeof b === "string") return b;
   throw new Error(
-    "录音带只支持字符串 body（ADR 0012 §② 的已知限制）——" +
+    "cassette.unsupported-body: 只支持字符串 body（ADR 0012 §② 的已知限制）——" +
       "收到的是别的形状，接真适配器时要先解决这一条。",
   );
 }
@@ -104,6 +104,106 @@ export function replaying(c: Cassette): FetchLike {
         headers: { ...ex.response.headers },
       }),
     );
+  };
+}
+
+/**
+ * 同一盘带子，但**按指纹取**而不是按顺序取，而且同一个请求可以取任意多次。
+ *
+ * @remarks
+ * IMPORTANT: 和 {@link replaying} 是两种用途，别混：
+ *
+ * ```text
+ * replaying              按顺序 + 核对指纹
+ *                        用于「一段有先后关系的会话」——
+ *                        顺序本身是被测行为的一部分（第 2 轮必须带着第 1 轮的结果）
+ * replayingByFingerprint 按指纹，可重复取
+ *                        用于「同一个场景被反复问」——
+ *                        契约套件对每个场景要连问两次、并发问三次、
+ *                        还要另外走一遍 stream（body 里多一个 stream:true，
+ *                        指纹不同），这些请求之间没有先后关系
+ * ```
+ *
+ * 顺序取在后一种用途下会假红：只走 stream 的那个测试拿到的是第 1 条
+ * 非流式往返，指纹对不上，而这跟被测代码对不对没有关系。
+ *
+ * TRAP: 可重复取意味着**它测不出「多问了一次」**。需要摁住调用次数时用
+ * {@link replaying}，或者在外面自己数。
+ *
+ * @param c - 录好的带子
+ * @returns 一个按指纹查表的 fetch
+ */
+export function replayingByFingerprint(c: Cassette): FetchLike {
+  const table = new Map<string, Exchange>();
+  for (const ex of c.exchanges) {
+    table.set(
+      fingerprint(ex.request.method, ex.request.url, ex.request.body),
+      ex,
+    );
+  }
+
+  return (input, init) => {
+    const mine = fingerprint(
+      init?.method ?? "GET",
+      String(input),
+      bodyOf(init),
+    );
+    const ex = table.get(mine);
+    if (ex === undefined) {
+      return Promise.reject(
+        new Error(
+          `录音带 ${c.provider}/${c.name} 里没有这个请求 ——` +
+            `带子录于 ${c.recordedAt}，多半是代码改了该重录了。
+` +
+            `现在发的：
+${mine}
+` +
+            `带子里有 ${String(table.size)} 种请求。`,
+        ),
+      );
+    }
+    return Promise.resolve(
+      new Response(ex.response.body, {
+        status: ex.response.status,
+        headers: { ...ex.response.headers },
+      }),
+    );
+  };
+}
+
+/**
+ * 把 {@link FetchLike} 拓宽成「和全局 fetch 一样宽」的形状，好塞进 SDK。
+ *
+ * @remarks
+ * IMPORTANT: 这是 {@link FetchLike} 那条 TRAP 的兑现（阶段 4 验的就是它）。
+ * SDK 的 `fetch` 选项要求 `input: string | Request | URL`，比我们窄的
+ * `string | URL` 宽一格，直接赋值 tsc 会拒绝。
+ *
+ * 拓宽的办法**不是**放松类型，而是**当场拒绝**那一格：收到 `Request` 就抛。
+ * 理由是 `bodyOf` 从 `init.body` 取请求体，而 `Request` 把 body 挂在自己身上 ——
+ * 静默接受会得到 `body: null`，于是两个内容不同的请求算出同一个指纹，
+ * **「带子对不上」这道安全带就悄悄失效了**。
+ *
+ * 2026-09 实测：`@anthropic-ai/sdk@0.124.0` 走的是 `fetch(url, init)`，
+ * 从不传 `Request` —— 所以这一支不会被打中。但它必须在，因为
+ * **「现在不会」不是「以后不会」**，而失效时没有任何信号。
+ *
+ * @param f - 只吃 string | URL 的 fetch
+ * @returns 形状更宽、但遇到 Request 当场抛的 fetch
+ */
+export function widenForSdk(
+  f: FetchLike,
+): (input: string | URL | Request, init?: RequestInit) => Promise<Response> {
+  return (input, init) => {
+    if (input instanceof Request) {
+      return Promise.reject(
+        new Error(
+          "cassette.request-object: 调用方传了 Request 对象，" +
+            "而录音带从 init.body 取请求体 —— 接住它会算出错的指纹（ADR 0012 §②）。",
+        ),
+      );
+    }
+    return f(input, init);
   };
 }
 

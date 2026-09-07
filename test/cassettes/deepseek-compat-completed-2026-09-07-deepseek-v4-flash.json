@@ -1,0 +1,44 @@
+{
+  "name": "completed",
+  "provider": "deepseek-compat",
+  "recordedAt": "2026-09-07",
+  "apiVersion": "deepseek-v4-flash",
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/anthropic/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"deepseek-v4-flash\",\"max_tokens\":512,\"system\":\"你在回答关于一个代码仓库的问题。需要看文件时就调用工具。\",\"messages\":[{\"role\":\"user\",\"content\":\"1 加 1 等于几？直接回答，不要用工具。\"}],\"tools\":[{\"name\":\"list_files\",\"description\":\"列出仓库内某个目录下的文件\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"dir\":{\"type\":\"string\"}},\"required\":[\"dir\"],\"additionalProperties\":false}},{\"name\":\"read_file\",\"description\":\"读取仓库内某个文件的内容\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"additionalProperties\":false}},{\"name\":\"search\",\"description\":\"在仓库里按关键词搜索\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"id\":\"8f26ab19-c3bb-4851-beb6-8f110b7c7e2d\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-v4-flash\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"8f26ab19-c3bb-4851-beb6-8f110b7c7e2d\"},{\"type\":\"text\",\"text\":\"1 + 1 = 2。\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":107,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":384,\"output_tokens\":9,\"service_tier\":\"standard\"}}"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/anthropic/v1/messages",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"deepseek-v4-flash\",\"max_tokens\":512,\"system\":\"你在回答关于一个代码仓库的问题。需要看文件时就调用工具。\",\"messages\":[{\"role\":\"user\",\"content\":\"1 加 1 等于几？直接回答，不要用工具。\"}],\"tools\":[{\"name\":\"list_files\",\"description\":\"列出仓库内某个目录下的文件\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"dir\":{\"type\":\"string\"}},\"required\":[\"dir\"],\"additionalProperties\":false}},{\"name\":\"read_file\",\"description\":\"读取仓库内某个文件的内容\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"],\"additionalProperties\":false}},{\"name\":\"search\",\"description\":\"在仓库里按关键词搜索\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"],\"additionalProperties\":false}}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"1380c12e-d875-4946-bdf4-88db013a1d62\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-v4-flash\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":107,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":384,\"output_tokens\":0,\"service_tier\":\"standard\"}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"1380c12e-d875-4946-bdf4-88db013a1d62\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"2\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"input_tokens\":107,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":384,\"output_tokens\":2,\"service_tier\":\"standard\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+      }
+    }
+  ]
+}

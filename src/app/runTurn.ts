@@ -107,11 +107,34 @@ export type Deps = {
  *
  * @remarks
  * 判据是供应商那边有没有产生 token，见 ADR 0011 §②。
+ *
+ * IMPORTANT: 写成穷尽 switch 而不是布尔表达式，是为了让 {@link LlmError}
+ * 长出新 kind 时 tsc 报 TS2366（缺少 return），逼人当场答一次
+ * 「这一支花钱了没有」。布尔表达式会把新 kind 静默判成 false ——
+ * 那个默认值从来没人选过。
+ *
+ * TRAP: 2026-09 实测过代价：给 LlmError 加一格 `context-exceeded`，
+ * `pnpm verify` 八道门全过、218 个用例全绿、退出码 0，零信号。
+ * 复现：在 ports.ts 的 LlmError 末尾加一个 kind，别改别的，跑 pnpm verify。
+ * 对照组是同文件的 LlmResponse —— 它有 KindsMatch 顶着，tsc 当场点名两处。
+ *
  * TODO(阶段 4): unavailable 里混着「连接超时」和「生成到一半断线」，
  * 后者其实花了钱 —— 接真模型时要用 provider 后台的用量对账。
+ * @see docs/decisions/0016-context-exceeded.md
  */
 function refundable(e: LlmError): boolean {
-  return e.kind === "unavailable" || e.kind === "rejected";
+  switch (e.kind) {
+    // 没问到模型，或者被它在生成之前挡下
+    case "unavailable":
+    case "rejected":
+      return true;
+    // 我们自己叫停的：请求已经发出去，可能已经生成了一部分
+    case "aborted":
+      return false;
+    // 拿到响应了才发现读不懂 —— token 已经产生
+    case "malformed":
+      return false;
+  }
 }
 
 /** 只对 unavailable 重试；retryAfterMs 有值就听它的。 */
@@ -168,7 +191,18 @@ async function runTools(
   return out;
 }
 
-/** 把工具结果变成喂回模型的文本。IMPORTANT: 截断要说出来，见 ADR 0011 §⑥。 */
+/**
+ * 把工具结果变成喂回模型的文本。IMPORTANT: 截断要说出来，见 ADR 0011 §⑥。
+ *
+ * @remarks
+ * NOTE: 这里的字符串是全项目少数**读者是模型**的字符串之一（另一处是
+ * infra/anthropic 的工具描述）。它们的语言不按代码规范定，按实测定 ——
+ * 判据是模型答得准不准、token 花多少，不是「哪种语言更规范」。
+ *
+ * TODO(阶段 4): 接上 key 之后拿 src/eval/ 跑一次对照：同一组题，
+ * 工具描述和工具结果的中文版 vs 英文版，比通过率和 token 用量。
+ * 在拿到那组数字之前不许凭直觉改语言。
+ */
 function renderOutcome(outcome: ToolOutcome): string {
   switch (outcome.kind) {
     case "ok":
@@ -301,6 +335,20 @@ export async function* run(
       const outcome = outcomes[i];
       if (outcome !== undefined) yield { kind: "tool-finished", call, outcome };
     }
+
+    // IMPORTANT: assistant 那一轮必须先进历史，工具结果才有东西可回应 ——
+    //            供应商的线格式要求「工具结果」跟在带工具调用的 assistant 后面。
+    //            ADR 0004 之后历史里只有 user / tool-result，这一格是补上的。
+    // @see docs/decisions/0018-assistant-turn.md
+    // opaque 只是搬运：用例层不看内容、不判断，只保证它跟着 calls 一起回去。
+    // NOTE: 条件展开而不是 `opaque: x ?? undefined` —— exactOptionalPropertyTypes
+    //       下「没有这个键」和「键的值是 undefined」是两种类型。
+    const opaque =
+      res.value.kind === "tool-requested" ? res.value.opaque : undefined;
+    history = [
+      ...history,
+      { role: "assistant", calls, ...(opaque === undefined ? {} : { opaque }) },
+    ];
 
     // 工具结果走 truncate（ADR 0011 §⑥）
     const texts = outcomes.map(renderOutcome);

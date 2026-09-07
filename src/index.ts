@@ -9,6 +9,7 @@
  */
 import { collect, run } from "./app/runTurn.ts";
 import { createRunConfig } from "./app/config.ts";
+import { NO_META } from "./app/ports.ts";
 import type { RunConfig } from "./app/config.ts";
 import { FakeLlm } from "./infra/fake/llm.ts";
 import { FakeTools } from "./infra/fake/tools.ts";
@@ -32,13 +33,17 @@ const llm = new FakeLlm([
     ok: true,
     value: {
       kind: "tool-requested",
+      meta: NO_META,
       calls: [
         { name: "list_files", id: "t1", dir: "docs" },
         { name: "read_file", id: "t2", path: "docs/README.md" },
       ],
     },
   },
-  { ok: true, value: { kind: "completed", text: "docs/ 下有 2 个文件。" } },
+  {
+    ok: true,
+    value: { kind: "completed", meta: NO_META, text: "docs/ 下有 2 个文件。" },
+  },
 ]);
 
 const tools = new FakeTools({

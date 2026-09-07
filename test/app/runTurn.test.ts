@@ -6,6 +6,7 @@ import { createRunConfig } from "../../src/app/config.ts";
 import { FakeLlm } from "../../src/infra/fake/llm.ts";
 import { FakeTools } from "../../src/infra/fake/tools.ts";
 import type { ToolOutcome } from "../../src/app/ports.ts";
+import { NO_META } from "../../src/app/ports.ts";
 
 const SYS = "你是仓库助手。";
 const Q = "docs 下有什么？";
@@ -46,6 +47,7 @@ describe("预算：两个都不够时，报 model-calls", () => {
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [{ name: "list_files", id: "t1", dir: "docs" }],
         },
       },
@@ -117,7 +119,9 @@ describe("预算：端口失败时，没花到钱的要退回", () => {
 
   // malformed = 模型答了、只是我们读不懂 → 花了钱 → 不退。
   it("malformed → 不退，modelCalls 停在 1", async () => {
-    const llm = new FakeLlm([{ ok: false, error: { kind: "malformed" } }]);
+    const llm = new FakeLlm([
+      { ok: false, error: { kind: "malformed", raw: null } },
+    ]);
     const { result } = await collect(
       run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
     );
@@ -179,6 +183,7 @@ describe("预算：工具预算在跑工具之前扣，不够就一个都不跑"
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [
             { name: "list_files", id: "t1", dir: "docs" },
             { name: "read_file", id: "t2", path: "docs/README.md" },
@@ -229,8 +234,8 @@ describe("工具：并行有上限", () => {
       path: `f${String(n)}`,
     }));
     const llm = new FakeLlm([
-      { ok: true, value: { kind: "tool-requested", calls } },
-      { ok: true, value: { kind: "completed", text: "好了" } },
+      { ok: true, value: { kind: "tool-requested", meta: NO_META, calls } },
+      { ok: true, value: { kind: "completed", meta: NO_META, text: "好了" } },
     ]);
     const tools = new FakeTools(
       Object.fromEntries(
@@ -263,10 +268,11 @@ describe("输入：用户输入 reject，工具结果 truncate", () => {
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [{ name: "read_file", id: "t1", path: "big" }],
         },
       },
-      { ok: true, value: { kind: "completed", text: "读完了" } },
+      { ok: true, value: { kind: "completed", meta: NO_META, text: "读完了" } },
     ]);
     const tools = new FakeTools({
       t1: { kind: "ok", content: "x".repeat(60) },
@@ -321,7 +327,7 @@ describe("输入：用户输入 reject，工具结果 truncate", () => {
 describe("返回：四个顶层 kind 各自出现在该出现的地方", () => {
   it("模型直接说完 → done，text 是模型说的那句", async () => {
     const llm = new FakeLlm([
-      { ok: true, value: { kind: "completed", text: "答案" } },
+      { ok: true, value: { kind: "completed", meta: NO_META, text: "答案" } },
     ]);
     const { result } = await collect(
       run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
@@ -331,7 +337,10 @@ describe("返回：四个顶层 kind 各自出现在该出现的地方", () => {
 
   it("内容不可信（truncated）→ aborted，不是 done", async () => {
     const llm = new FakeLlm([
-      { ok: true, value: { kind: "truncated", partialText: "半句" } },
+      {
+        ok: true,
+        value: { kind: "truncated", meta: NO_META, partialText: "半句" },
+      },
     ]);
     const { result } = await collect(
       run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
@@ -447,10 +456,14 @@ describe("历史：归用例层，每次发全量", () => {
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [{ name: "list_files", id: "t1", dir: "docs" }],
         },
       },
-      { ok: true, value: { kind: "completed", text: "两个文件" } },
+      {
+        ok: true,
+        value: { kind: "completed", meta: NO_META, text: "两个文件" },
+      },
     ]);
     const tools = new FakeTools({ t1: { kind: "ok", content: "README.md" } });
     const { result } = await collect(
@@ -464,6 +477,11 @@ describe("历史：归用例层，每次发全量", () => {
     // 第 2 次：全量 —— 提问还在，后面跟着工具结果
     expect(llm.sent[1]).toEqual([
       { role: "user", text: Q },
+      // ADR 0018：assistant 那一轮进历史，工具结果才有东西可回应
+      {
+        role: "assistant",
+        calls: [{ name: "list_files", id: "t1", dir: "docs" }],
+      },
       {
         role: "tool-result",
         id: "t1",
@@ -486,6 +504,7 @@ describe("预算：跑完工具还得问得起模型，否则一个都不跑", (
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [{ name: "list_files", id: "t1", dir: "docs" }],
         },
       },
@@ -646,8 +665,14 @@ describe("事件：完整序列", () => {
   it("一轮工具调用 + 一轮回答 → 四个事件，顺序固定", async () => {
     const call = { name: "list_files" as const, id: "t1", dir: "docs" };
     const llm = new FakeLlm([
-      { ok: true, value: { kind: "tool-requested", calls: [call] } },
-      { ok: true, value: { kind: "completed", text: "两个文件" } },
+      {
+        ok: true,
+        value: { kind: "tool-requested", meta: NO_META, calls: [call] },
+      },
+      {
+        ok: true,
+        value: { kind: "completed", meta: NO_META, text: "两个文件" },
+      },
     ]);
     const tools = new FakeTools({ t1: { kind: "ok", content: "README.md" } });
     const { events, result } = await collect(
@@ -675,8 +700,8 @@ describe("事件：完整序列", () => {
       path: `f${String(n)}`,
     }));
     const llm = new FakeLlm([
-      { ok: true, value: { kind: "tool-requested", calls } },
-      { ok: true, value: { kind: "completed", text: "好了" } },
+      { ok: true, value: { kind: "tool-requested", meta: NO_META, calls } },
+      { ok: true, value: { kind: "completed", meta: NO_META, text: "好了" } },
     ]);
     const tools = new FakeTools(
       Object.fromEntries(
@@ -710,7 +735,11 @@ describe("工具结果进上下文：两条失败路径", () => {
   const listFiles = { name: "list_files" as const, id: "t1", dir: "docs" };
   const askForTool = {
     ok: true as const,
-    value: { kind: "tool-requested" as const, calls: [listFiles] },
+    value: {
+      kind: "tool-requested" as const,
+      calls: [listFiles],
+      meta: NO_META,
+    },
   };
 
   // 推演：提问 20 字节先记账 → 剩 5。工具结果 "README.md" 9 字节 → 20+9=29 > 25。
@@ -772,7 +801,7 @@ describe("工具结果进上下文：两条失败路径", () => {
   it("截断的工具结果喂回模型时带 [已截断] 标记", async () => {
     const llm = new FakeLlm([
       askForTool,
-      { ok: true, value: { kind: "completed", text: "读完了" } },
+      { ok: true, value: { kind: "completed", meta: NO_META, text: "读完了" } },
     ]);
     const tools = new FakeTools({
       t1: { kind: "ok", content: "x".repeat(60) },
@@ -795,6 +824,7 @@ describe("工具结果进上下文：两条失败路径", () => {
     expect(result.kind).toBe("done");
     expect(llm.sent[1]).toEqual([
       { role: "user", text: Q },
+      { role: "assistant", calls: [listFiles] },
       {
         role: "tool-result",
         id: "t1",
@@ -807,11 +837,11 @@ describe("工具结果进上下文：两条失败路径", () => {
   it("没截断就不加标记", async () => {
     const llm = new FakeLlm([
       askForTool,
-      { ok: true, value: { kind: "completed", text: "读完了" } },
+      { ok: true, value: { kind: "completed", meta: NO_META, text: "读完了" } },
     ]);
     const tools = new FakeTools({ t1: { kind: "ok", content: "README.md" } });
     await collect(run({ llm, tools, sleep: nap }, cfgWith(), SYS, Q));
-    expect(llm.sent[1]?.[1]).toEqual({
+    expect(llm.sent[1]?.[2]).toEqual({
       role: "tool-result",
       id: "t1",
       outcome: { kind: "ok", content: "README.md" },
@@ -862,8 +892,11 @@ describe("工具结果：五种非 ok 的 outcome 各自的文本", () => {
     },
   ])("$why", async ({ outcome, text }) => {
     const llm = new FakeLlm([
-      { ok: true, value: { kind: "tool-requested", calls: [call] } },
-      { ok: true, value: { kind: "completed", text: "知道了" } },
+      {
+        ok: true,
+        value: { kind: "tool-requested", meta: NO_META, calls: [call] },
+      },
+      { ok: true, value: { kind: "completed", meta: NO_META, text: "知道了" } },
     ]);
     const tools = new FakeTools({ t1: outcome });
     const { events, result } = await collect(
@@ -873,7 +906,7 @@ describe("工具结果：五种非 ok 的 outcome 各自的文本", () => {
     // ① 返回了什么：工具失败不终止循环，模型还能接着说
     expect(result.kind).toBe("done");
     // ② 发生了什么：渲染成文本喂回去
-    expect(llm.sent[1]?.[1]).toEqual({
+    expect(llm.sent[1]?.[2]).toEqual({
       role: "tool-result",
       id: "t1",
       outcome: { kind: "ok", content: text },
@@ -891,7 +924,7 @@ describe("返回：refused 和 empty 都是 aborted", () => {
     { why: "模型拒答", kind: "refused", reason: "refused" },
     { why: "模型什么都没说", kind: "empty", reason: "empty-response" },
   ])("$why → aborted($reason)，且不再问第二次", async ({ kind, reason }) => {
-    const llm = new FakeLlm([{ ok: true, value: { kind } }]);
+    const llm = new FakeLlm([{ ok: true, value: { kind, meta: NO_META } }]);
     const { result } = await collect(
       run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
     );
@@ -907,8 +940,11 @@ describe("返回：最后一次可负担的调用里说完了 → done", () => {
   it("模型额度 2，第二轮说完 → done 而不是 aborted，且额度正好用满", async () => {
     const call = { name: "list_files" as const, id: "t1", dir: "docs" };
     const llm = new FakeLlm([
-      { ok: true, value: { kind: "tool-requested", calls: [call] } },
-      { ok: true, value: { kind: "completed", text: "答完了" } },
+      {
+        ok: true,
+        value: { kind: "tool-requested", meta: NO_META, calls: [call] },
+      },
+      { ok: true, value: { kind: "completed", meta: NO_META, text: "答完了" } },
     ]);
     const tools = new FakeTools({ t1: { kind: "ok", content: "README.md" } });
     const { result } = await collect(

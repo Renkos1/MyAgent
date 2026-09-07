@@ -14,10 +14,11 @@ import type {
   ToolOutcome,
   ToolPort,
 } from "../../src/app/ports.ts";
+import { NO_META } from "../../src/app/ports.ts";
 import { FakeLlm } from "../../src/infra/fake/llm.ts";
 import type { Scripted } from "../../src/infra/fake/llm.ts";
 import { FakeTools } from "../../src/infra/fake/tools.ts";
-import { llmPortContract } from "./llmPort.contract.ts";
+import { ANY_REQ, llmPortContract } from "./llmPort.contract.ts";
 import { toolPortContract } from "./toolPort.contract.ts";
 import type { ToolCase } from "./toolPort.contract.ts";
 import type { Scenario } from "./scenarios.ts";
@@ -34,13 +35,14 @@ function scriptFor(s: Scenario): Scripted | null {
     case "completed":
       return {
         ok: true,
-        value: { kind: "completed", text: "docs 下有 2 个文件" },
+        value: { kind: "completed", meta: NO_META, text: "docs 下有 2 个文件" },
       };
     case "tool-requested-one":
       return {
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [{ name: "list_files", id: "c1", dir: "docs" }],
         },
       };
@@ -49,6 +51,7 @@ function scriptFor(s: Scenario): Scripted | null {
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [
             { name: "list_files", id: "c1", dir: "docs" },
             { name: "read_file", id: "c2", path: "docs/README.md" },
@@ -59,12 +62,12 @@ function scriptFor(s: Scenario): Scripted | null {
     case "truncated":
       return {
         ok: true,
-        value: { kind: "truncated", partialText: "docs 下有" },
+        value: { kind: "truncated", meta: NO_META, partialText: "docs 下有" },
       };
     case "refused":
-      return { ok: true, value: { kind: "refused" } };
+      return { ok: true, value: { kind: "refused", meta: NO_META } };
     case "empty":
-      return { ok: true, value: { kind: "empty" } };
+      return { ok: true, value: { kind: "empty", meta: NO_META } };
     case "rate-limited-with-hint":
       return { ok: false, error: { kind: "unavailable", retryAfterMs: 1500 } };
     case "rate-limited-no-hint":
@@ -76,9 +79,12 @@ function scriptFor(s: Scenario): Scripted | null {
     case "bad-request":
       return { ok: false, error: { kind: "rejected" } };
     case "malformed":
-      return { ok: false, error: { kind: "malformed" } };
+      return { ok: false, error: { kind: "malformed", raw: null } };
     case "aborted-before-send":
-      return { ok: true, value: { kind: "completed", text: "不该看到这句" } };
+      return {
+        ok: true,
+        value: { kind: "completed", meta: NO_META, text: "不该看到这句" },
+      };
 
     // 摆不出：FakeLlm 在 take() 开头查一次 signal 就返回，
     // 没有「请求已经出去了」这个中间状态可言。
@@ -90,6 +96,8 @@ function scriptFor(s: Scenario): Scripted | null {
 llmPortContract({
   name: "FakeLlm",
   cannotStage: ["aborted-mid-flight"],
+  // NOTE: FakeLlm 按脚本走，不看请求内容 —— 问什么都一样
+  reqFor: () => ANY_REQ,
   stage: (s) => {
     const item = scriptFor(s);
     // 套件对同一个端口最多问 3 次；多备一格，问超了让 FakeLlm 自己炸出来

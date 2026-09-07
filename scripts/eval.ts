@@ -30,6 +30,7 @@ import { FakeLlm } from "../src/infra/fake/llm.ts";
 import type { Scripted } from "../src/infra/fake/llm.ts";
 import { FakeTools } from "../src/infra/fake/tools.ts";
 import type { ToolOutcome } from "../src/app/ports.ts";
+import { NO_META } from "../src/app/ports.ts";
 
 const casesPath = process.argv[2] ?? join("eval", "cases.json");
 const outDir = process.argv[3] ?? join("eval", "results");
@@ -76,12 +77,17 @@ const SCRIPTS: Readonly<
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [{ name: "list_files", id: "a", dir: "docs" }],
         },
       },
       {
         ok: true,
-        value: { kind: "completed", text: "docs 下有 README.md 和 MAP.md。" },
+        value: {
+          kind: "completed",
+          meta: NO_META,
+          text: "docs 下有 README.md 和 MAP.md。",
+        },
       },
     ],
     tools: { a: { kind: "ok", content: "README.md\nMAP.md" } },
@@ -92,12 +98,17 @@ const SCRIPTS: Readonly<
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [{ name: "read_file", id: "a", path: "docs/README.md" }],
         },
       },
       {
         ok: true,
-        value: { kind: "completed", text: "它是按场景的文档入口。" },
+        value: {
+          kind: "completed",
+          meta: NO_META,
+          text: "它是按场景的文档入口。",
+        },
       },
     ],
     tools: { a: { kind: "ok", content: "# 文档入口" } },
@@ -106,7 +117,11 @@ const SCRIPTS: Readonly<
     script: [
       {
         ok: true,
-        value: { kind: "completed", text: "你好，问我这个仓库的事。" },
+        value: {
+          kind: "completed",
+          meta: NO_META,
+          text: "你好，问我这个仓库的事。",
+        },
       },
     ],
     tools: {},
@@ -117,6 +132,7 @@ const SCRIPTS: Readonly<
         ok: true,
         value: {
           kind: "tool-requested",
+          meta: NO_META,
           calls: [
             { name: "list_files", id: "a", dir: "docs" },
             { name: "read_file", id: "b", path: "docs/README.md" },
@@ -125,7 +141,11 @@ const SCRIPTS: Readonly<
       },
       {
         ok: true,
-        value: { kind: "completed", text: "两个文件，README 是入口。" },
+        value: {
+          kind: "completed",
+          meta: NO_META,
+          text: "两个文件，README 是入口。",
+        },
       },
     ],
     tools: {
@@ -139,7 +159,7 @@ const SCRIPTS: Readonly<
 const subject: Subject = async (question) => {
   const entry = SCRIPTS[question];
   const llm = new FakeLlm(
-    entry?.script ?? [{ ok: true, value: { kind: "empty" } }],
+    entry?.script ?? [{ ok: true, value: { kind: "empty", meta: NO_META } }],
   );
   const tools = new FakeTools(entry?.tools ?? {});
   const { events, result } = await collect(

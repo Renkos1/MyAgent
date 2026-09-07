@@ -24,6 +24,27 @@ export type TurnOutcome =
   | { readonly kind: "completed" }
   /** 输出长度到顶被截断。IMPORTANT: 内容不完整，不能当答案。 */
   | { readonly kind: "truncated" }
+  /**
+   * 上下文窗口在生成途中被撑满。
+   *
+   * @remarks
+   * IMPORTANT: 和 truncated 的区别不在「内容完不完整」（都不完整），
+   * 在补救方式 —— truncated 调大出参上限还有救，这一支必须砍历史，
+   * 重发同一份历史一定再炸。合并成一个 kind，调用方就永远选错补救方式。
+   *
+   * NOTE: 它来自供应商的成功响应（HTTP 200），不是错误 —— 输入已经计费。
+   */
+  | { readonly kind: "context-exceeded" }
+  /**
+   * 供应商把这一轮暂停了（server tool 跑太久）。
+   *
+   * @remarks
+   * NOTE: 本项目不用 server tool，所以它不该出现。线格式上可续，
+   * 但我们没有续的路径 —— 所以判成失败，不是 continue。
+   */
+  | { readonly kind: "paused" }
+  /** 撞上了自定义停止序列。NOTE: 我们一个都没设，出现即请求不对。 */
+  | { readonly kind: "stop-sequence" }
   /** 供应商拒绝生成。 */
   | { readonly kind: "refused" }
   /** 既没有内容也没有工具请求。 */
@@ -39,6 +60,9 @@ export type TurnOutcome =
 export type AbortReason =
   | InsufficientBudget
   | { readonly kind: "truncated" }
+  | { readonly kind: "context-exceeded" }
+  | { readonly kind: "paused" }
+  | { readonly kind: "stop-sequence" }
   | { readonly kind: "refused" }
   | { readonly kind: "empty-response" }
   | InvalidCount;
@@ -58,7 +82,7 @@ export type Decision =
  */
 /* v8 ignore start -- 按定义不可达：能走到这里说明类型检查已经失败了 */
 function assertNever(x: never): never {
-  throw new Error(`意料之外的分支: ${JSON.stringify(x)}`);
+  throw new Error(`turn.unexpected-branch: ${JSON.stringify(x)}`);
 }
 /* v8 ignore stop */
 
@@ -77,9 +101,15 @@ export function decide(outcome: TurnOutcome): Decision {
     case "completed":
       return { kind: "done" };
 
-    // 内容不可信的三种，一律失败
+    // 内容不可信的六种，一律失败
     case "truncated":
       return { kind: "aborted", reason: { kind: "truncated" } };
+    case "context-exceeded":
+      return { kind: "aborted", reason: { kind: "context-exceeded" } };
+    case "paused":
+      return { kind: "aborted", reason: { kind: "paused" } };
+    case "stop-sequence":
+      return { kind: "aborted", reason: { kind: "stop-sequence" } };
     case "refused":
       return { kind: "aborted", reason: { kind: "refused" } };
     case "empty":
