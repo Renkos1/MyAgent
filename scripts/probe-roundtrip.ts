@@ -19,23 +19,11 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { TOOLS } from "../src/infra/anthropic/map.ts";
+import { loadEnvOrExit } from "./load-env.ts";
 
-function env(name: string): string | undefined {
-  const own = process.env[`SMOKE_${name}`];
-  if (own !== undefined && own !== "") return own;
-  const shared = process.env[`ANTHROPIC_${name}`];
-  return shared === "" ? undefined : shared;
-}
-
-const token = env("AUTH_TOKEN");
-const baseURL = env("BASE_URL");
-const model = env("MODEL") ?? "claude-haiku-4-5-20251001";
-const maxTokens = Number(env("MAX_TOKENS") ?? "1024");
-
-if (token === undefined || baseURL === undefined) {
-  console.error("缺 SMOKE_AUTH_TOKEN / SMOKE_BASE_URL，见 .env.example");
-  process.exit(1);
-}
+const { authToken, baseURL, model, maxTokens } =
+  loadEnvOrExit("probe-roundtrip");
+const token = authToken.expose();
 
 const client = new Anthropic({ baseURL, authToken: token, maxRetries: 0 });
 const SYSTEM = "你在回答关于一个代码仓库的问题。需要看文件时就调用工具。";

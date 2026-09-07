@@ -23,22 +23,10 @@ import { recording, widenForSdk } from "../src/infra/tape/http.ts";
 import { saveCassette } from "../src/infra/tape/cassette.ts";
 import { SCENARIOS } from "../test/contract/scenarios.ts";
 import { TAPE_PLAN, TAPE_SYSTEM } from "../test/contract/tapePlan.ts";
+import { loadEnvOrExit } from "./load-env.ts";
 
-function env(name: string): string | undefined {
-  const own = process.env[`SMOKE_${name}`];
-  if (own !== undefined && own !== "") return own;
-  const shared = process.env[`ANTHROPIC_${name}`];
-  return shared === "" ? undefined : shared;
-}
-
-const token = env("AUTH_TOKEN");
-const baseURL = env("BASE_URL");
-const model = env("MODEL") ?? "claude-haiku-4-5-20251001";
-
-if (token === undefined || baseURL === undefined) {
-  console.error("缺 SMOKE_AUTH_TOKEN / SMOKE_BASE_URL，见 .env.example");
-  process.exit(1);
-}
+const { authToken, baseURL, model } = loadEnvOrExit("record");
+const token = authToken.expose();
 
 const DIR = "test/cassettes";
 const PROVIDER = "deepseek-compat";

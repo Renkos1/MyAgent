@@ -14,29 +14,16 @@
  *   外加  thinking 块长什么样、带不带 signature ——
  *         决定 toMessages 重建 assistant 消息时丢掉它要不要紧（ADR 0018 的缺口）
  *
- * 环境变量同 smoke.ts（SMOKE_* 优先，ANTHROPIC_* 兜底）。
+ * 环境变量见 .env.example（AGENT_* 优先，ANTHROPIC_* 兜底）。
  *
  * 用法   pnpm probe:tools
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { TOOLS, toResponse } from "../src/infra/anthropic/map.ts";
+import { loadEnvOrExit } from "./load-env.ts";
 
-function env(name: string): string | undefined {
-  const own = process.env[`SMOKE_${name}`];
-  if (own !== undefined && own !== "") return own;
-  const shared = process.env[`ANTHROPIC_${name}`];
-  return shared === "" ? undefined : shared;
-}
-
-const token = env("AUTH_TOKEN");
-const baseURL = env("BASE_URL");
-const model = env("MODEL") ?? "claude-haiku-4-5-20251001";
-const maxTokens = Number(env("MAX_TOKENS") ?? "1024");
-
-if (token === undefined || baseURL === undefined) {
-  console.error("缺 SMOKE_AUTH_TOKEN / SMOKE_BASE_URL，见 .env.example");
-  process.exit(1);
-}
+const { authToken, baseURL, model, maxTokens } = loadEnvOrExit("probe-tools");
+const token = authToken.expose();
 
 const client = new Anthropic({ baseURL, authToken: token, maxRetries: 0 });
 
