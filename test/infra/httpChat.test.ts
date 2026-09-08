@@ -9,6 +9,7 @@
  * @see docs/decisions/0021-http-boundary-and-sse.md
  */
 import { afterEach, describe, expect, it } from "vitest";
+import net from "node:net";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 
@@ -113,8 +114,11 @@ function cfgWith(over: Partial<RunConfig> = {}): ValidRunConfig {
 }
 
 let open: Server[] = [];
+let rawSockets: net.Socket[] = [];
 
 afterEach(() => {
+  for (const s of rawSockets) s.destroy();
+  rawSockets = [];
   for (const s of open) s.close();
   open = [];
 });
@@ -343,6 +347,45 @@ describe("POST /chat：客户端走了", () => {
   });
 });
 
+describe("POST /chat：客户端连上但不读", () => {
+  // IMPORTANT: 这条量的是「server 有没有真的 await write」——
+  //            write 自己的契约在 write.test.ts 里考，那边考不到这一层的接线。
+  //
+  // 实测（Node v24 + loopback，三次一致）：等背压时稳定停在 240 块左右；
+  // 不等背压时 800 块全部产完，12.8MB 压在服务端进程里。
+  // 断言写成「小于总数」而不是钉死 240 —— 那个数是内核缓冲区大小，换台机器会变。
+  it("对端不收，上游就停下来", async () => {
+    const TOTAL = 800;
+    const llm = new ChunkLlm(
+      Array.from({ length: TOTAL }, () => "x".repeat(16 * 1024)),
+    );
+    const url = await serve({ llm });
+    const port = Number(new URL(url).port);
+
+    await new Promise<void>((resolve) => {
+      const sock = net.connect(port, "127.0.0.1", () => {
+        const body = JSON.stringify({ question: "慢慢说" });
+        sock.write(
+          `POST /chat HTTP/1.1\r\nhost: x\r\n` +
+            `content-type: application/json\r\n` +
+            `content-length: ${String(Buffer.byteLength(body))}\r\n\r\n${body}`,
+        );
+        resolve();
+      });
+      rawSockets.push(sock);
+      // NOTE: 一个 data 监听器都不挂 —— net.Socket 默认是暂停的，
+      //       数据就停在内核缓冲区里，正是「读得慢的客户端」的极端形态。
+    });
+
+    await sleep(400);
+    const stalled = llm.produced;
+    await sleep(200);
+
+    expect(llm.produced).toBe(stalled); // 是停住了，不是只是慢
+    expect(stalled).toBeLessThan(TOTAL); // 停在半路，没有把全部产完
+  });
+});
+
 describe("POST /chat：流开始之后才失败", () => {
   it("掐 socket，不发终止事件（D2）", async () => {
     const call = { name: "list_files" as const, id: "t1", dir: "docs" };
@@ -422,6 +465,47 @@ describe("POST /chat/sync：同一个用例层", () => {
   });
 });
 
+describe("端口失败 → 状态码", () => {
+  // IMPORTANT: 这张表原来一行断言都没有。它是纯查表 —— 填错一格，
+  //            类型层看不见（四格都在，只是值错了），别处也没有任何信号。
+  //            判据写在每一行的名字里，因为「哪个码对」不是查手册查得出来的。
+  it.each<[string, LlmError, number, string]>([
+    [
+      "unavailable 是唯一带重试建议的一格，Retry-After 挂在 503 上",
+      { kind: "unavailable", retryAfterMs: null },
+      503,
+      "upstream-unavailable",
+    ],
+    [
+      "rejected 重试没用，不许对客户端说「稍后再来」",
+      { kind: "rejected" },
+      502,
+      "upstream-rejected",
+    ],
+    [
+      "malformed 是对面答了、我们读不懂",
+      { kind: "malformed", raw: null },
+      502,
+      "upstream-malformed",
+    ],
+    [
+      "aborted 还有人在听 = 只可能是我们自己超时",
+      { kind: "aborted", sideEffect: "unknown" },
+      504,
+      "timeout",
+    ],
+  ])("%s", async (_why, error, status, code) => {
+    const url = await serve({
+      llm: new FakeLlm([{ ok: false, error }]),
+      // maxRetries: 0 —— 让 unavailable 那行只消费一条脚本
+      cfg: cfgWith({ maxRetries: 0 }),
+    });
+    const res = await post(`${url}/chat/sync`, { question: "docs 下有什么？" });
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({ code });
+  });
+});
+
 describe("请求本身不合法：状态码 + 闭集里的码", () => {
   it.each([
     ["路径不认识", "/nope", "POST", { question: "hi" }, 404, "not-found"],
@@ -440,6 +524,56 @@ describe("请求本身不合法：状态码 + 闭集里的码", () => {
     });
     expect(res.status).toBe(status);
     expect(await res.json()).toEqual({ code });
+  });
+
+  // IMPORTANT: 上限的方向必须和领域一致 —— domain/input.ts 判的是
+  //            `bytes <= maxInputBytesPerItem`，**正好等于上限是放行**。
+  //            边界差一格，只有压线的请求体看得出来；上面那条「远超上限」
+  //            对这个差别完全无感，它两边都红/都绿。
+  describe("请求体压着上限", () => {
+    const LIMIT = 1024;
+    /** `{"question":""}` 的固定开销，用算的不用数的。 */
+    const OVERHEAD = Buffer.byteLength(JSON.stringify({ question: "" }));
+
+    const serveWithLimit = (): Promise<string> =>
+      serve({
+        llm: new ChunkLlm(["答案"]),
+        cfg: cfgWith({
+          limits: {
+            maxModelCalls: 9,
+            maxToolRuns: 9,
+            maxInputBytesPerItem: 4096,
+            maxInputBytesTotal: LIMIT,
+          },
+        }),
+      });
+
+    it("正好等于上限 → 放行，而且一个字节都没丢", async () => {
+      const question = "x".repeat(LIMIT - OVERHEAD);
+      const body = JSON.stringify({ question });
+      // 脚手架自检：算错了就当场炸，不要让用例悄悄考了别的东西
+      expect(Buffer.byteLength(body)).toBe(LIMIT);
+
+      const res = await post(`${await serveWithLimit()}/chat/sync`, body);
+      expect(res.status).toBe(200);
+      // inputBytes 等于问题本身的长度 —— 这条顺带证明请求体是完整读进来的
+      expect(await res.json()).toEqual({
+        stop: "done",
+        text: "答案",
+        budget: { modelCalls: 1, toolRuns: 0, inputBytes: LIMIT - OVERHEAD },
+      });
+    });
+
+    it("超出一个字节 → 413", async () => {
+      const body = JSON.stringify({
+        question: "x".repeat(LIMIT - OVERHEAD + 1),
+      });
+      expect(Buffer.byteLength(body)).toBe(LIMIT + 1);
+
+      const res = await post(`${await serveWithLimit()}/chat/sync`, body);
+      expect(res.status).toBe(413);
+      expect(await res.json()).toEqual({ code: "too-large" });
+    });
   });
 
   it("body 超过领域的总字节上限 → 413，而且没读完就停", async () => {

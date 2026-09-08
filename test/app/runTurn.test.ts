@@ -5,8 +5,17 @@ import type { RunConfig, ValidRunConfig } from "../../src/app/config.ts";
 import { createRunConfig } from "../../src/app/config.ts";
 import { FakeLlm } from "../../src/infra/fake/llm.ts";
 import { FakeTools } from "../../src/infra/fake/tools.ts";
-import type { ToolOutcome } from "../../src/app/ports.ts";
+import type {
+  LlmError,
+  LlmPort,
+  LlmResponse,
+  ProviderCapabilities,
+  StreamChunk,
+  ToolOutcome,
+} from "../../src/app/ports.ts";
 import { NO_META } from "../../src/app/ports.ts";
+import type { Result } from "../../src/domain/result.ts";
+import { err, ok } from "../../src/domain/result.ts";
 
 const SYS = "你是仓库助手。";
 const Q = "docs 下有什么？";
@@ -665,6 +674,103 @@ describe("重试：退避时长", () => {
       { kind: "retrying", attempt: 1, afterMs: 1000 },
       { kind: "retrying", attempt: 2, afterMs: 2000 },
     ]);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+/**
+ * 先吐几块、再报错的假模型。
+ *
+ * NOTE: {@link FakeLlm} 造不出这个形状 —— 它的错误永远出现在第一块。
+ * 「吐了一半才错」是流式引入的新形状，非流式里根本不存在。
+ */
+class HalfwayLlm implements LlmPort {
+  readonly capabilities: ProviderCapabilities = {
+    toolUse: "yes",
+    parallelToolUse: "yes",
+    streaming: "yes",
+    midConversationSystem: "yes",
+    promptCaching: "none",
+    verifiesThinkingSignature: "no",
+    validatesModelName: "yes",
+  };
+
+  /** 被问了几次。重试会让它涨 —— 这是「有没有重试」最直接的证据。 */
+  calls = 0;
+
+  private readonly deltas: readonly string[];
+  private readonly error: LlmError;
+
+  // TRAP: 不能写成参数属性，Node 的类型擦除是 strip-only（同 FakeLlm）。
+  constructor(deltas: readonly string[], error: LlmError) {
+    this.deltas = deltas;
+    this.error = error;
+  }
+
+  send(): Promise<Result<LlmResponse, LlmError>> {
+    this.calls += 1;
+    return Promise.resolve(err(this.error));
+  }
+
+  async *stream(): AsyncIterable<Result<StreamChunk, LlmError>> {
+    await Promise.resolve();
+    this.calls += 1;
+    for (const delta of this.deltas) {
+      yield ok<StreamChunk>({ kind: "text", delta });
+    }
+    yield err<LlmError>(this.error);
+  }
+}
+
+// IMPORTANT: 重试的代价在流式下变了 —— 非流式重试只是多花一次钱，
+//            流式重试会把已经推给客户端的那段话再推一遍。
+// @see docs/decisions/0021-http-boundary-and-sse.md
+describe("重试：已经吐过 delta 的那一次不许重试", () => {
+  it("吐两块之后断线 → 不重试、不重复吐，结果是 failed", async () => {
+    const llm = new HalfwayLlm(["两个", "文件"], {
+      kind: "unavailable",
+      retryAfterMs: null,
+    });
+    const { waited, sleep } = recordingSleep();
+    const { events, result } = await collect(
+      run(
+        { llm, tools: new FakeTools({}), sleep },
+        cfgWith({ maxRetries: 3, retryBaseMs: 1000 }),
+        SYS,
+        Q,
+      ),
+    );
+
+    // 重试会让这个数组里出现第二对 delta —— 客户端屏幕上就是同一段话两遍
+    expect(events).toEqual([
+      { kind: "turn-started", turn: 1 },
+      { kind: "text", delta: "两个" },
+      { kind: "text", delta: "文件" },
+    ]);
+    expect(result).toMatchObject({
+      kind: "failed",
+      error: { kind: "unavailable", retryAfterMs: null },
+    });
+    // 三条各自独立的证据：没有 retrying 事件、模型只被问了一次、没睡过
+    expect(llm.calls).toBe(1);
+    expect(waited).toEqual([]);
+  });
+
+  // 对照组。IMPORTANT: 缺了它，「一律不重试」也能让上面那条绿 ——
+  //            而那是把重试整个删掉，不是修这条规则。
+  it("一块都没吐就断线 → 照常重试到用尽", async () => {
+    const llm = new HalfwayLlm([], { kind: "unavailable", retryAfterMs: null });
+    const { waited, sleep } = recordingSleep();
+    await collect(
+      run(
+        { llm, tools: new FakeTools({}), sleep },
+        cfgWith({ maxRetries: 2, retryBaseMs: 1000 }),
+        SYS,
+        Q,
+      ),
+    );
+    expect(llm.calls).toBe(3);
+    expect(waited).toEqual([1000, 2000]);
   });
 });
 

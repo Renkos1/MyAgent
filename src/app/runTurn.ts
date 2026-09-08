@@ -111,6 +111,12 @@ export type Deps = {
   readonly sleep: (ms: number) => Promise<void>;
 };
 
+/* v8 ignore start -- 按定义不可达：能走到这里说明类型检查已经失败了 */
+function assertNever(x: never): never {
+  throw new Error(`runTurn.unmapped-error: ${JSON.stringify(x)}`);
+}
+/* v8 ignore stop */
+
 /**
  * 这些错误没花到钱，预算退回。
  *
@@ -122,10 +128,15 @@ export type Deps = {
  * 「这一支花钱了没有」。布尔表达式会把新 kind 静默判成 false ——
  * 那个默认值从来没人选过。
  *
- * TRAP: 2026-09 实测过代价：给 LlmError 加一格 `context-exceeded`，
- * `pnpm verify` 八道门全过、218 个用例全绿、退出码 0，零信号。
- * 复现：在 ports.ts 的 LlmError 末尾加一个 kind，别改别的，跑 pnpm verify。
+ * TRAP: 2026-09 实测过代价：那时这里还是布尔表达式
+ * （`e.kind === "rejected" || e.kind === "unavailable"`），给 LlmError 加一格
+ * `context-exceeded`，`pnpm verify` 八道门全过、218 个用例全绿、退出码 0，零信号。
  * 对照组是同文件的 LlmResponse —— 它有 KindsMatch 顶着，tsc 当场点名两处。
+ *
+ * NOTE: 2026-09-08 复测，改成穷尽 switch 之后这条不再成立：同样加一格，
+ * tsc 当场报 TS2366。但那句话指着函数签名，不说少了哪一格 ——
+ * 下面的 assertNever 把它换成 TS2345，直接念出新 kind 的名字。两种都量过。
+ * 复现：在 ports.ts 的 LlmError 末尾加一个 kind，别改别的，跑 pnpm check。
  *
  * TODO(阶段 4): unavailable 里混着「连接超时」和「生成到一半断线」，
  * 后者其实花了钱 —— 接真模型时要用 provider 后台的用量对账。
@@ -144,6 +155,8 @@ function refundable(e: LlmError): boolean {
     // 拿到响应了才发现读不懂 —— token 已经产生
     case "malformed":
       return false;
+    default:
+      return assertNever(e);
   }
 }
 
@@ -167,7 +180,9 @@ async function* streamWithRetry(
 ): AsyncGenerator<RunEvent, Awaited<ReturnType<LlmPort["send"]>>> {
   let attempt = 0;
   for (;;) {
-    let emitted = false;
+    // IMPORTANT: 量的是「推给调用方的字」，不是「收到了结局」——
+    //            这一轮能不能重试全看它，名字也因此不叫 done/finished。
+    let emittedText = false;
     let outcome: Awaited<ReturnType<LlmPort["send"]>> | null = null;
 
     for await (const chunk of deps.llm.stream(req, opts)) {
@@ -176,16 +191,16 @@ async function* streamWithRetry(
         break;
       }
       if (chunk.value.kind === "text") {
+        emittedText = true;
         yield { kind: "text", delta: chunk.value.delta };
         continue;
       }
-      emitted = true;
       outcome = ok(chunk.value.response);
     }
 
     const res = outcome ?? err<LlmError>({ kind: "malformed", raw: null });
     if (res.ok || res.error.kind !== "unavailable") return res;
-    if (emitted) return res;
+    if (emittedText) return res;
     if (attempt >= cfg.maxRetries) return res;
     const afterMs = res.error.retryAfterMs ?? cfg.retryBaseMs * 2 ** attempt;
     attempt += 1;

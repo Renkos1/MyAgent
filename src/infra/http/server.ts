@@ -22,6 +22,7 @@ import type { Deps, RunResult } from "../../app/runTurn.ts";
 import { collect, run } from "../../app/runTurn.ts";
 import type { ValidRunConfig } from "../../app/config.ts";
 import { SSE_HEADERS, encode, heartbeat } from "./sse.ts";
+import { write } from "./write.ts";
 import { toTerminal, toWire } from "./wire.ts";
 
 /** 起一个服务要什么。IMPORTANT: 全部显式传入 —— 这里不读环境变量。 */
@@ -70,22 +71,44 @@ type ErrorCode =
 /** 请求体。NOTE: 用 Zod 是因为这里是进程边界，形状没有被 tsc 保证过。 */
 const Body = z.object({ question: z.string().min(1) });
 
-/** 端口错误 → 状态码 + 码。IMPORTANT: 穷尽 switch，端口长新错误时 tsc 点名。 */
+/**
+ * 穷尽性守卫。
+ *
+ * NOTE: 没有它 tsc 也会拦（TS2366「函数缺少 return」），但那句话指着函数签名，
+ * 不说少了哪一格；有它是 TS2345，把新 kind 的名字念出来。2026-09-08 两种都实测过。
+ */
+/* v8 ignore start -- 按定义不可达：能走到这里说明类型检查已经失败了 */
+function assertNever(x: never): never {
+  throw new Error(`http.unmapped-error: ${JSON.stringify(x)}`);
+}
+/* v8 ignore stop */
+
+/**
+ * 端口错误 → 状态码 + 码。
+ *
+ * @remarks
+ * IMPORTANT: 判据是 **`retryAfterMs` 这个字段**，不是「哪个码更常见」——
+ * `unavailable` 是四格里唯一带重试建议的，而 `Retry-After` 的定义挂在 503 上；
+ * `rejected`（401/403/请求本身不合法）重试没用，说 503 等于叫客户端白等一轮。
+ * 两个码调过来，语义正好互换，而且**没有任何别的信号会红**（四格都在，只是值错）。
+ */
 function mapError(r: Extract<RunResult, { kind: "failed" }>): {
   readonly status: number;
   readonly code: ErrorCode;
 } {
   switch (r.error.kind) {
     case "unavailable":
-      return { status: 502, code: "upstream-unavailable" };
+      return { status: 503, code: "upstream-unavailable" };
     case "rejected":
-      return { status: 503, code: "upstream-rejected" };
+      return { status: 502, code: "upstream-rejected" };
     case "malformed":
       return { status: 502, code: "upstream-malformed" };
     // 还有人在听的取消只可能是我们自己的请求超时 —— 客户端走了的话
     // 这个响应根本发不出去（socket 已经没了）。
     case "aborted":
       return { status: 504, code: "timeout" };
+    default:
+      return assertNever(r.error);
   }
 }
 
@@ -100,17 +123,12 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 }
 
 /**
- * 写一块，缓冲满了就等它排空。
+ * 收请求体，超过上限就停。上限沿用领域已有的那个数，不另发明一个。
  *
- * IMPORTANT: 必须同时等 `close`。断开之后 `write` 返回 false 且**不抛**，
- * 而 `drain` 永远不会再来 —— 只等 drain 的话这里挂死（实测，坑③）。
+ * IMPORTANT: 边界方向要和领域一致 —— `domain/input.ts` 判的是
+ * `bytes <= max`，所以**正好等于上限是放行**，这里必须是 `>` 不是 `>=`。
+ * 同一个数在两处用相反的方向，压线的请求就会被这一层挡掉而领域根本不知道。
  */
-function write(res: ServerResponse, chunk: string): Promise<void> {
-  res.write(chunk);
-  return Promise.resolve();
-}
-
-/** 收请求体，超过上限就停。上限沿用领域已有的那个数，不另发明一个。 */
 async function readBody(
   req: IncomingMessage,
   limit: number,
@@ -122,7 +140,7 @@ async function readBody(
   for await (const chunk of req) {
     const buf = chunk as Buffer;
     size += buf.byteLength;
-    if (size >= limit) return { ok: false };
+    if (size > limit) return { ok: false };
     parts.push(buf);
   }
   return { ok: true, text: Buffer.concat(parts).toString("utf8") };
