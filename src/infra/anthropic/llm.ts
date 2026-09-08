@@ -28,6 +28,16 @@ import { err, ok } from "../../domain/result.ts";
 import type { WireRequest } from "./map.ts";
 import { TOOLS, toError, toMessages, toResponse } from "./map.ts";
 
+/**
+ * 读一次 signal 的状态。
+ *
+ * TRAP: 必须通过函数读。`opts?.signal?.aborted` 直接写两次的话，
+ * tsc 会把第二次的类型收窄成 `false | undefined` 并跨 await 保留 ——
+ * 它是个 getter，值会变，这个收窄是不成立的。
+ */
+const aborted = (opts: CallOptions | undefined): boolean =>
+  opts?.signal?.aborted === true;
+
 /** 造一个适配器要什么。IMPORTANT: 全部显式传入，没有默认的 provider。 */
 export type AnthropicLlmDeps = {
   /**
@@ -104,6 +114,9 @@ export function createAnthropicLlm(deps: AnthropicLlmDeps): LlmPort {
       // 历史形状不合法是我们自己的 bug，一个请求都不用发
       const wire = toMessages(req);
       if (!wire.ok) return wire;
+      // IMPORTANT: 发之前拦一道，为的是能诚实地说 sideEffect: "none" ——
+      //            交给 SDK 之后再取消，谁都分不清对面开始生成了没有。
+      if (aborted(opts)) return err({ kind: "aborted", sideEffect: "none" });
 
       try {
         const msg = await deps.client.messages.create(body(wire.value), {
@@ -124,6 +137,10 @@ export function createAnthropicLlm(deps: AnthropicLlmDeps): LlmPort {
       const wire = toMessages(req);
       if (!wire.ok) {
         yield wire;
+        return;
+      }
+      if (aborted(opts)) {
+        yield err<LlmError>({ kind: "aborted", sideEffect: "none" });
         return;
       }
 

@@ -19,6 +19,7 @@ import type {
 } from "../domain/loop.ts";
 import { recordModelCall, reserveToolRuns } from "../domain/loop.ts";
 import { admitInput } from "../domain/input.ts";
+import { err, ok } from "../domain/result.ts";
 import type { InputError } from "../domain/input.ts";
 import type { ValidRunConfig } from "./config.ts";
 import type { AbortReason } from "../domain/turn.ts";
@@ -43,13 +44,21 @@ import { toOutcome } from "./ports.ts";
  * 和返回值一样属于契约（选 generator 的全部理由就在这里）。
  *
  * 每一轮的顺序固定：
- * `turn-started` → `retrying`* → `tool-started`* → `tool-finished`* → `input-truncated`*
+ * `turn-started` → (`text`* | `retrying`*) → `tool-started`* → `tool-finished`*
+ * → `input-truncated`*
  *
  * IMPORTANT: 所有 tool-started 在任何 tool-finished 之前发完 ——
  * 工具是并发跑的，调用方不要按「一发一收」配对，要按 call.id 对账。
  */
 export type RunEvent =
   | { readonly kind: "turn-started"; readonly turn: number }
+  /**
+   * 模型正在打字。
+   *
+   * IMPORTANT: 全部 delta 拼起来等于最终答案 —— 这条不变量归端口
+   * （{@link LlmPort.stream}），用例层只是原样转发，不重排、不合并、不改。
+   */
+  | { readonly kind: "text"; readonly delta: string }
   | { readonly kind: "tool-started"; readonly call: ToolCall }
   | {
       readonly kind: "tool-finished";
@@ -128,17 +137,29 @@ function refundable(e: LlmError): boolean {
     case "unavailable":
     case "rejected":
       return true;
-    // 我们自己叫停的：请求已经发出去，可能已经生成了一部分
+    // 我们自己叫停的。IMPORTANT: 判据不是「谁叫停的」，是「发出去了没有」——
+    // 发之前拦下来一个 token 都没产生，发出去之后对面可能已经生成了一半。
     case "aborted":
-      return false;
+      return e.sideEffect === "none";
     // 拿到响应了才发现读不懂 —— token 已经产生
     case "malformed":
       return false;
   }
 }
 
-/** 只对 unavailable 重试；retryAfterMs 有值就听它的。 */
-async function* sendWithRetry(
+/**
+ * 走流式问一次模型，边收边把 delta 转出去；只对 unavailable 重试。
+ *
+ * @remarks
+ * IMPORTANT: 已经吐过 delta 的那一次不重试，哪怕错误是 unavailable ——
+ * 重试会从头再吐一遍，客户端屏幕上就是同一段话出现两次。
+ * 要想重试又不重复，线格式得先有一个「作废前面那些」的事件，
+ * 而那是对外契约的一部分（ADR 0021 D1），不是这里能顺手加的。
+ *
+ * NOTE: 流跑完了既没给结局也没报错，算适配器的 bug（malformed），
+ * 不算成功 —— 没有结局就没有 stop_reason，判不出这一轮该做什么。
+ */
+async function* streamWithRetry(
   deps: Deps,
   cfg: ValidRunConfig,
   req: LlmRequest,
@@ -146,8 +167,25 @@ async function* sendWithRetry(
 ): AsyncGenerator<RunEvent, Awaited<ReturnType<LlmPort["send"]>>> {
   let attempt = 0;
   for (;;) {
-    const res = await deps.llm.send(req, opts);
+    let emitted = false;
+    let outcome: Awaited<ReturnType<LlmPort["send"]>> | null = null;
+
+    for await (const chunk of deps.llm.stream(req, opts)) {
+      if (!chunk.ok) {
+        outcome = err(chunk.error);
+        break;
+      }
+      if (chunk.value.kind === "text") {
+        yield { kind: "text", delta: chunk.value.delta };
+        continue;
+      }
+      emitted = true;
+      outcome = ok(chunk.value.response);
+    }
+
+    const res = outcome ?? err<LlmError>({ kind: "malformed", raw: null });
     if (res.ok || res.error.kind !== "unavailable") return res;
+    if (emitted) return res;
     if (attempt >= cfg.maxRetries) return res;
     const afterMs = res.error.retryAfterMs ?? cfg.retryBaseMs * 2 ** attempt;
     attempt += 1;
@@ -291,7 +329,7 @@ export async function* run(
     if (!charged.ok) return { kind: "aborted", reason: charged.error, budget };
     budget = charged.value;
 
-    const res = yield* sendWithRetry(
+    const res = yield* streamWithRetry(
       deps,
       cfg,
       { system: systemPrompt, history },

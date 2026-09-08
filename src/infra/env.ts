@@ -69,6 +69,12 @@ export type AppEnv = {
   readonly baseURL: string;
   readonly model: KnownModel;
   readonly maxTokens: number;
+  /** HTTP 服务监听哪个端口。 */
+  readonly port: number;
+  /** 整条 HTTP 请求最长活多久。IMPORTANT: Node 没有内置的这个上限，见 ADR 0021 D5。 */
+  readonly requestTimeoutMs: number;
+  /** 单次问模型最长等多久。到点算 unavailable（可重试），不算取消。 */
+  readonly upstreamTimeoutMs: number;
 };
 
 /**
@@ -82,6 +88,22 @@ const Schema = z.object({
   BASE_URL: z.url(),
   MODEL: z.enum(KNOWN_MODELS),
   MAX_TOKENS: z.coerce.number().int().positive().max(200000).default(1024),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  // NOTE: 两个超时都有默认值，所以它们是「旋钮」不是「必填」——
+  //       判据见 ADR 0021 D5：默认值是决定，可配置只是决定谁能改。
+  //       上限不是防呆是防脚：把整条超时设成一小时，等于没设。
+  REQUEST_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(3600000)
+    .default(300000),
+  UPSTREAM_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(600000)
+    .default(60000),
 });
 
 /** 缺失和非法各自的人话。IMPORTANT: Zod 自带的英文原话不满足「说清缺什么」。 */
@@ -102,6 +124,20 @@ const ADVICE: Readonly<Record<string, { missing: string; invalid: string }>> = {
   MAX_TOKENS: {
     missing: "",
     invalid: "要是 1 到 200000 之间的整数。不设就用默认值 1024。",
+  },
+  PORT: {
+    missing: "",
+    invalid: "要是 1 到 65535 之间的整数。不设就用默认值 3000。",
+  },
+  REQUEST_TIMEOUT_MS: {
+    missing: "",
+    invalid:
+      "要是 1 到 3600000 之间的整数（整条 HTTP 请求的寿命）。不设就用 300000。",
+  },
+  UPSTREAM_TIMEOUT_MS: {
+    missing: "",
+    invalid:
+      "要是 1 到 600000 之间的整数（单次问模型的时限）。不设就用 60000。",
   },
 };
 
@@ -161,6 +197,9 @@ export function readEnv(
     BASE_URL: pick(source, "BASE_URL"),
     MODEL: pick(source, "MODEL"),
     MAX_TOKENS: pick(source, "MAX_TOKENS"),
+    PORT: pick(source, "PORT"),
+    REQUEST_TIMEOUT_MS: pick(source, "REQUEST_TIMEOUT_MS"),
+    UPSTREAM_TIMEOUT_MS: pick(source, "UPSTREAM_TIMEOUT_MS"),
   };
 
   const parsed = Schema.safeParse(raw);
@@ -183,5 +222,8 @@ export function readEnv(
     baseURL: parsed.data.BASE_URL,
     model: parsed.data.MODEL,
     maxTokens: parsed.data.MAX_TOKENS,
+    port: parsed.data.PORT,
+    requestTimeoutMs: parsed.data.REQUEST_TIMEOUT_MS,
+    upstreamTimeoutMs: parsed.data.UPSTREAM_TIMEOUT_MS,
   });
 }

@@ -104,18 +104,29 @@ describe("预算：端口失败时，没花到钱的要退回", () => {
     if (result.kind !== "setup") expect(result.budget.modelCalls).toBe(0);
   });
 
-  // aborted = 我们自己叫停，模型那边已经在生成了 → 不退 → 停在 1。
-  it("aborted → 不退，modelCalls 停在 1", async () => {
-    const llm = new FakeLlm([{ ok: false, error: { kind: "aborted" } }]);
-    const { result } = await collect(
-      run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
-    );
-    expect(result).toMatchObject({
-      kind: "failed",
-      error: { kind: "aborted" },
-    });
-    if (result.kind !== "setup") expect(result.budget.modelCalls).toBe(1);
-  });
+  // aborted 分两格（ADR 0021 D3）：判据是「请求发出去了没有」，不是「谁叫停的」。
+  // unknown = 已经发出去，对面可能生成了一半 -> 不退；none = 一个 token 都没有 -> 退。
+  it.each([
+    { sideEffect: "unknown" as const, modelCalls: 1 },
+    { sideEffect: "none" as const, modelCalls: 0 },
+  ])(
+    "aborted/$sideEffect → modelCalls 停在 $modelCalls",
+    async ({ sideEffect, modelCalls }) => {
+      const llm = new FakeLlm([
+        { ok: false, error: { kind: "aborted", sideEffect } },
+      ]);
+      const { result } = await collect(
+        run({ llm, tools: new FakeTools({}), sleep: nap }, cfgWith(), SYS, Q),
+      );
+      expect(result).toMatchObject({
+        kind: "failed",
+        error: { kind: "aborted", sideEffect },
+      });
+      if (result.kind !== "setup") {
+        expect(result.budget.modelCalls).toBe(modelCalls);
+      }
+    },
+  );
 
   // malformed = 模型答了、只是我们读不懂 → 花了钱 → 不退。
   it("malformed → 不退，modelCalls 停在 1", async () => {
@@ -662,7 +673,7 @@ describe("重试：退避时长", () => {
 //            只断言 result 的话，这个形态白选了。
 // @see docs/decisions/0011-use-case-orchestration.md §① —— 函数的形状
 describe("事件：完整序列", () => {
-  it("一轮工具调用 + 一轮回答 → 四个事件，顺序固定", async () => {
+  it("一轮工具调用 + 一轮回答 → 事件顺序固定，答案是流出来的", async () => {
     const call = { name: "list_files" as const, id: "t1", dir: "docs" };
     const llm = new FakeLlm([
       {
@@ -690,7 +701,21 @@ describe("事件：完整序列", () => {
         outcome: { kind: "ok", content: "README.md" },
       },
       { kind: "turn-started", turn: 2 },
+      // 第二轮是 completed，答案一个字一个字流出来（ADR 0021：没有 delta
+      // 就没有「逐块输出」，SSE 这一层也就没东西可转）
+      { kind: "text", delta: "两" },
+      { kind: "text", delta: "个" },
+      { kind: "text", delta: "文" },
+      { kind: "text", delta: "件" },
     ]);
+
+    // 端口的不变量二在用例层这一侧的样子：拼起来必须等于最终答案。
+    // IMPORTANT: 断言的是内容不是条数 —— 条数对而内容错的实现照样能过。
+    const streamed = events
+      .filter((e) => e.kind === "text")
+      .map((e) => e.delta)
+      .join("");
+    expect(streamed).toBe(result.kind === "done" ? result.text : "");
   });
 
   it("模型一次要 3 个工具 → tool-started 先全发，再发 tool-finished", async () => {
@@ -720,6 +745,8 @@ describe("事件：完整序列", () => {
       "tool-finished",
       "tool-finished",
       "turn-started",
+      "text",
+      "text",
     ]);
     // tool-finished 的次序跟着 calls，不跟着完成先后
     // NOTE: filter 的箭头函数被推断成类型谓词，所以下面直接拿 .call 不用再收窄
