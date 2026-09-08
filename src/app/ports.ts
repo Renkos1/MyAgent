@@ -134,8 +134,21 @@ export type LlmError =
   | { readonly kind: "unavailable"; readonly retryAfterMs: number | null }
   /** 重试没用：401 / 403 / 请求本身不合法。 */
   | { readonly kind: "rejected" }
-  /** signal 触发。NOTE: 不是错误，是我们自己叫停的，但调用方要能分辨。 */
-  | { readonly kind: "aborted" }
+  /**
+   * signal 触发。NOTE: 不是错误，是我们自己叫停的，但调用方要能分辨。
+   *
+   * @remarks
+   * IMPORTANT: `sideEffect` 和 {@link ToolOutcome} 那一格同形，判据也同一条 ——
+   * 请求发出去之前被叫停是 `none`（一个 token 都没产生，预算退得回来），
+   * 发出去之后是 `unknown`（对面可能已经生成了一部分，退不得）。
+   *
+   * 阶段 6 之前这一格只有一种来源（我们自己 abort），所以压成一格没有代价。
+   * 有了 HTTP 之后它每天都会发生 —— 用户关页面就是一次，而「关得早」和
+   * 「关得晚」在账单上是两回事。
+   * @see docs/decisions/0021-http-boundary-and-sse.md
+   * @see docs/decisions/0015-aborted-side-effect.md
+   */
+  | { readonly kind: "aborted"; readonly sideEffect: "none" | "unknown" }
   /**
    * IMPORTANT: 适配器没能把响应压成 {@link LlmResponse} 的某一格 ——
    * 我们的代码要改，不是等一下再试。

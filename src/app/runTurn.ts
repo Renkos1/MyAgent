@@ -19,6 +19,7 @@ import type {
 } from "../domain/loop.ts";
 import { recordModelCall, reserveToolRuns } from "../domain/loop.ts";
 import { admitInput } from "../domain/input.ts";
+import { err, ok } from "../domain/result.ts";
 import type { InputError } from "../domain/input.ts";
 import type { ValidRunConfig } from "./config.ts";
 import type { AbortReason } from "../domain/turn.ts";
@@ -43,13 +44,21 @@ import { toOutcome } from "./ports.ts";
  * 和返回值一样属于契约（选 generator 的全部理由就在这里）。
  *
  * 每一轮的顺序固定：
- * `turn-started` → `retrying`* → `tool-started`* → `tool-finished`* → `input-truncated`*
+ * `turn-started` → (`text`* | `retrying`*) → `tool-started`* → `tool-finished`*
+ * → `input-truncated`*
  *
  * IMPORTANT: 所有 tool-started 在任何 tool-finished 之前发完 ——
  * 工具是并发跑的，调用方不要按「一发一收」配对，要按 call.id 对账。
  */
 export type RunEvent =
   | { readonly kind: "turn-started"; readonly turn: number }
+  /**
+   * 模型正在打字。
+   *
+   * IMPORTANT: 全部 delta 拼起来等于最终答案 —— 这条不变量归端口
+   * （{@link LlmPort.stream}），用例层只是原样转发，不重排、不合并、不改。
+   */
+  | { readonly kind: "text"; readonly delta: string }
   | { readonly kind: "tool-started"; readonly call: ToolCall }
   | {
       readonly kind: "tool-finished";
@@ -102,6 +111,12 @@ export type Deps = {
   readonly sleep: (ms: number) => Promise<void>;
 };
 
+/* v8 ignore start -- 按定义不可达：能走到这里说明类型检查已经失败了 */
+function assertNever(x: never): never {
+  throw new Error(`runTurn.unmapped-error: ${JSON.stringify(x)}`);
+}
+/* v8 ignore stop */
+
 /**
  * 这些错误没花到钱，预算退回。
  *
@@ -113,10 +128,15 @@ export type Deps = {
  * 「这一支花钱了没有」。布尔表达式会把新 kind 静默判成 false ——
  * 那个默认值从来没人选过。
  *
- * TRAP: 2026-09 实测过代价：给 LlmError 加一格 `context-exceeded`，
- * `pnpm verify` 八道门全过、218 个用例全绿、退出码 0，零信号。
- * 复现：在 ports.ts 的 LlmError 末尾加一个 kind，别改别的，跑 pnpm verify。
+ * TRAP: 2026-09 实测过代价：那时这里还是布尔表达式
+ * （`e.kind === "rejected" || e.kind === "unavailable"`），给 LlmError 加一格
+ * `context-exceeded`，`pnpm verify` 八道门全过、218 个用例全绿、退出码 0，零信号。
  * 对照组是同文件的 LlmResponse —— 它有 KindsMatch 顶着，tsc 当场点名两处。
+ *
+ * NOTE: 2026-09-08 复测，改成穷尽 switch 之后这条不再成立：同样加一格，
+ * tsc 当场报 TS2366。但那句话指着函数签名，不说少了哪一格 ——
+ * 下面的 assertNever 把它换成 TS2345，直接念出新 kind 的名字。两种都量过。
+ * 复现：在 ports.ts 的 LlmError 末尾加一个 kind，别改别的，跑 pnpm check。
  *
  * TODO(阶段 4): unavailable 里混着「连接超时」和「生成到一半断线」，
  * 后者其实花了钱 —— 接真模型时要用 provider 后台的用量对账。
@@ -128,17 +148,31 @@ function refundable(e: LlmError): boolean {
     case "unavailable":
     case "rejected":
       return true;
-    // 我们自己叫停的：请求已经发出去，可能已经生成了一部分
+    // 我们自己叫停的。IMPORTANT: 判据不是「谁叫停的」，是「发出去了没有」——
+    // 发之前拦下来一个 token 都没产生，发出去之后对面可能已经生成了一半。
     case "aborted":
-      return false;
+      return e.sideEffect === "none";
     // 拿到响应了才发现读不懂 —— token 已经产生
     case "malformed":
       return false;
+    default:
+      return assertNever(e);
   }
 }
 
-/** 只对 unavailable 重试；retryAfterMs 有值就听它的。 */
-async function* sendWithRetry(
+/**
+ * 走流式问一次模型，边收边把 delta 转出去；只对 unavailable 重试。
+ *
+ * @remarks
+ * IMPORTANT: 已经吐过 delta 的那一次不重试，哪怕错误是 unavailable ——
+ * 重试会从头再吐一遍，客户端屏幕上就是同一段话出现两次。
+ * 要想重试又不重复，线格式得先有一个「作废前面那些」的事件，
+ * 而那是对外契约的一部分（ADR 0021 D1），不是这里能顺手加的。
+ *
+ * NOTE: 流跑完了既没给结局也没报错，算适配器的 bug（malformed），
+ * 不算成功 —— 没有结局就没有 stop_reason，判不出这一轮该做什么。
+ */
+async function* streamWithRetry(
   deps: Deps,
   cfg: ValidRunConfig,
   req: LlmRequest,
@@ -146,8 +180,27 @@ async function* sendWithRetry(
 ): AsyncGenerator<RunEvent, Awaited<ReturnType<LlmPort["send"]>>> {
   let attempt = 0;
   for (;;) {
-    const res = await deps.llm.send(req, opts);
+    // IMPORTANT: 量的是「推给调用方的字」，不是「收到了结局」——
+    //            这一轮能不能重试全看它，名字也因此不叫 done/finished。
+    let emittedText = false;
+    let outcome: Awaited<ReturnType<LlmPort["send"]>> | null = null;
+
+    for await (const chunk of deps.llm.stream(req, opts)) {
+      if (!chunk.ok) {
+        outcome = err(chunk.error);
+        break;
+      }
+      if (chunk.value.kind === "text") {
+        emittedText = true;
+        yield { kind: "text", delta: chunk.value.delta };
+        continue;
+      }
+      outcome = ok(chunk.value.response);
+    }
+
+    const res = outcome ?? err<LlmError>({ kind: "malformed", raw: null });
     if (res.ok || res.error.kind !== "unavailable") return res;
+    if (emittedText) return res;
     if (attempt >= cfg.maxRetries) return res;
     const afterMs = res.error.retryAfterMs ?? cfg.retryBaseMs * 2 ** attempt;
     attempt += 1;
@@ -291,7 +344,7 @@ export async function* run(
     if (!charged.ok) return { kind: "aborted", reason: charged.error, budget };
     budget = charged.value;
 
-    const res = yield* sendWithRetry(
+    const res = yield* streamWithRetry(
       deps,
       cfg,
       { system: systemPrompt, history },

@@ -12,13 +12,17 @@
  * IMPORTANT: 是「全部」不是「第一个」。缺三个变量报一个、改完再报下一个，
  * 等于让人启动三次才知道全貌 —— 阶段 5 的验收标准写的是「说清缺什么」。
  *
- *     pnpm dev                     用默认问题
- *     pnpm dev "你的问题"
+ *     pnpm dev                     起 HTTP 服务
+ *     curl -N -X POST localhost:3000/chat -d '{"question":"..."}'
+ *
+ * IMPORTANT: 阶段 6 起入口是 HTTP，命令行那条一次性路径删掉了 ——
+ * 留着就是第二条实现路径（ADR 0021 D1 明确不要）。
  *
  * 需要的环境变量见 `.env.example`。SAFETY: 真 key 只放 `.env`。
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { collect, run } from "./app/runTurn.ts";
+import { createChatServer } from "./infra/http/server.ts";
+import { withCallTimeout } from "./infra/timeout.ts";
 import { createRunConfig } from "./app/config.ts";
 import type { RunConfig } from "./app/config.ts";
 import { readEnv, sourceOf } from "./infra/env.ts";
@@ -70,43 +74,40 @@ const cfg = built.value;
 // ── ③ 适配器 ──────────────────────────────────────────────────────
 // IMPORTANT: maxRetries: 0 —— 重试归用例层管。SDK 再来一层的话实际请求次数是
 //            两层相乘，RunConfig.maxRetries 这个配置就在说谎。
-const llm = createAnthropicLlm({
-  client: new Anthropic({
-    baseURL: env.value.baseURL,
-    authToken: env.value.authToken.expose(),
-    maxRetries: 0,
+const llm = withCallTimeout(
+  createAnthropicLlm({
+    client: new Anthropic({
+      baseURL: env.value.baseURL,
+      authToken: env.value.authToken.expose(),
+      maxRetries: 0,
+    }),
+    model: env.value.model,
+    maxTokens: env.value.maxTokens,
+    capabilities: DEEPSEEK_COMPAT,
   }),
-  model: env.value.model,
-  maxTokens: env.value.maxTokens,
-  capabilities: DEEPSEEK_COMPAT,
-});
+  env.value.upstreamTimeoutMs,
+);
 
 // TODO: 工具还是假的 —— 真的文件系统适配器还没建（阶段 1 的 resolveInsideRoot
 //       和 size 规则至今没有一个真调用方）。在它建起来之前，默认问题是一句
 //       不需要工具的问题；问需要读文件的问题会得到「工具没配」。
 const tools = new FakeTools({});
 
-// ── ④ 跑 ──────────────────────────────────────────────────────────
-const question = process.argv[2] ?? "用一句话说明什么是纯函数。";
-console.log(`问题      ${question}\n`);
+// ── ④ 起服务 ────────────────────────────────────────────────────
+const server = createChatServer({
+  deps: { llm, tools, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) },
+  cfg,
+  systemPrompt: "你在回答关于一个代码仓库的问题。",
+  requestTimeoutMs: env.value.requestTimeoutMs,
+});
 
-const { events, result } = await collect(
-  run(
-    { llm, tools, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) },
-    cfg,
-    "你在回答关于一个代码仓库的问题。",
-    question,
-  ),
-);
-
-for (const e of events) console.log("·", e.kind);
-console.log("\n结果  ", result.kind);
-if (result.kind === "done") console.log("答案  ", result.text);
-if (result.kind !== "setup") {
+server.listen(env.value.port, () => {
+  console.log(`\n监听    http://localhost:${String(env.value.port)}`);
   console.log(
-    "预算  ",
-    `模型 ${String(result.budget.modelCalls)}/${String(raw.limits.maxModelCalls)}`,
-    `工具 ${String(result.budget.toolRuns)}/${String(raw.limits.maxToolRuns)}`,
-    `字节 ${String(result.budget.inputBytes)}`,
+    `超时    整条 ${String(env.value.requestTimeoutMs)}ms / 单次上游 ${String(env.value.upstreamTimeoutMs)}ms`,
   );
-}
+  console.log(
+    `试试    curl -N -X POST localhost:${String(env.value.port)}/chat ` +
+      `-H 'content-type: application/json' -d '{"question":"什么是纯函数"}'`,
+  );
+});

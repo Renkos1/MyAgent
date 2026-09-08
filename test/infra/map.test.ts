@@ -240,8 +240,11 @@ describe("toError：状态码 → kind", () => {
   });
 
   it("APIUserAbortError → aborted（是我们自己叫停的，不是故障）", () => {
+    // sideEffect 只能是 unknown：走到 catch 说明请求已经交给 SDK 了。
+    // 「发出去之前就取消」由 llm.ts 自己拦，那一支返回 none（ADR 0021 D3）。
     expect(toError(new Anthropic.APIUserAbortError(), now)).toEqual({
       kind: "aborted",
+      sideEffect: "unknown",
     });
   });
 

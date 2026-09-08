@@ -263,8 +263,13 @@ function retryableStatus(status: number): boolean {
  * @throws 原样抛出任何不是 `Anthropic.APIError` 的值
  */
 export function toError(e: unknown, now: () => number): LlmError {
-  // signal 触发 —— 不是故障，是我们自己叫停的
-  if (e instanceof Anthropic.APIUserAbortError) return { kind: "aborted" };
+  // signal 触发 —— 不是故障，是我们自己叫停的。
+  // IMPORTANT: 这里只能是 unknown。SDK 抛这个异常时请求已经交出去了，
+  //            「发出去之前就取消」那一支由 llm.ts 在发之前自己拦（返回 none），
+  //            走到 catch 里的一律当成「对面可能已经开始生成」。
+  if (e instanceof Anthropic.APIUserAbortError) {
+    return { kind: "aborted", sideEffect: "unknown" };
+  }
   // 连不上：没有状态码，也没有供应商的建议
   if (e instanceof Anthropic.APIConnectionError) {
     return { kind: "unavailable", retryAfterMs: null };

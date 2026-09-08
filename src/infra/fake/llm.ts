@@ -98,7 +98,10 @@ export class FakeLlm implements LlmPort {
   }
 
   private take(req: LlmRequest, opts: CallOptions | undefined): Scripted {
-    if (opts?.signal?.aborted === true) return err({ kind: "aborted" });
+    // NOTE: 进来之前就 aborted -> 一条脚本都没消费，什么都没发出去。
+    if (opts?.signal?.aborted === true) {
+      return err({ kind: "aborted", sideEffect: "none" });
+    }
     this.sent.push(req.history);
     this.systems.push(req.system);
     const item = this.script[this.next];
